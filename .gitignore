@@ -1,0 +1,8 @@
+*~
+data/**
+plots/**
+venv/**
+**__pycache__**
+condor_scripts/error
+condor_scripts/output
+condor_scripts/log
