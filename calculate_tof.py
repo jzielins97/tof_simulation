@@ -1,9 +1,10 @@
 # handling of arguments
 import argparse
 import sys
+import os
 from pathlib import Path
-sys.path.append(str(Path(sys.prefix).parent / 'modules'))
-print(Path(sys.prefix).parent)
+sys.path.append(os.path.join(os.path.dirname(__file__),"modules"))
+# print(sys.path)
 from typing import Union,Optional 
 # custom modules for fragments analysis 
 from collections.abc import Callable
@@ -18,7 +19,6 @@ import numpy as np
 from scipy.interpolate import make_interp_spline, BSpline
 from scipy.optimize import curve_fit
 from scipy.stats import gennorm
-import os
 
 def _bool(string:str)->bool:
     '''
@@ -237,7 +237,7 @@ def _fill_trap(potential_df:pl.DataFrame,
               spacecharge_min_V:Optional[float] = None,
               spacecharge_max_V:Optional[float] = None,
               verbose_level:int = 0
-              )->pl.DataFrame:
+              )->tuple[pl.DataFrame,float,float]:
     '''
     Find region of the trap which is filled with particles
     '''
@@ -284,7 +284,7 @@ def _fill_trap(potential_df:pl.DataFrame,
         print("Calculated potentials")
         print(potential_df)
 
-    return potential_df
+    return potential_df,spacecharge_min_V,spacecharge_max_V
 
 
 def _plot_potential_shape(potential_df:pl.DataFrame,
@@ -312,16 +312,16 @@ def _plot_potential_shape(potential_df:pl.DataFrame,
     # plot trap potential
     V_full_min = potential_df.filter('full_trap').filter(pl.col("V_prepare")==pl.min("V_prepare")).select('z [mm]',"V_prepare")
     V_full_max = potential_df.filter('full_trap').filter(pl.col("V_prepare")==pl.max("V_prepare")).select('z [mm]',"V_prepare")
-    ax.axvline(potential_df.filter("full_trap")['z [mm]'].first(),color='green',linestyle='--')
-    ax.axvline(potential_df.filter("full_trap")['z [mm]'].last(),color='green',linestyle='--')
+    ax.axvline(potential_df.filter("full_trap").select(pl.first('z [mm]')).item(),color='green',linestyle='--')
+    ax.axvline(potential_df.filter("full_trap").select(pl.last('z [mm]')).item(),color='green',linestyle='--')
     ax.plot(potential_df.filter("interest_region")['z [mm]'],[V_full_max['V_prepare']]*interest_region_size,color='green',linestyle='--',label='trap well')
     ax.plot(potential_df.filter("interest_region")['z [mm]'],[V_full_min['V_prepare']]*interest_region_size,color='green',linestyle='--')
     
     #plot filled trap
     V_filled_min = potential_df.filter('filled_trap').filter(pl.col("V_prepare")==pl.min("V_prepare")).select('z [mm]',"V_prepare")
     V_filled_max = potential_df.filter('filled_trap').filter(pl.col("V_prepare")==pl.max("V_prepare")).select('z [mm]',"V_prepare")
-    ax.axvline(potential_df.filter('filled_trap')['z [mm]'].last(),color='tab:purple',linestyle=':')
-    ax.axvline(potential_df.filter('filled_trap')['z [mm]'].first(),color='tab:purple',linestyle=':')
+    ax.axvline(potential_df.filter('filled_trap').select(pl.last('z [mm]')).item(),color='tab:purple',linestyle=':')
+    ax.axvline(potential_df.filter('filled_trap').select(pl.first('z [mm]')).item(),color='tab:purple',linestyle=':')
     ax.plot(potential_df.filter("interest_region")['z [mm]'],[V_filled_max['V_prepare']]*interest_region_size,color='tab:purple',linestyle=':',label='filled trap')
     ax.plot(potential_df.filter("interest_region")['z [mm]'],[V_filled_min['V_prepare']+ spacecharge_min_V if spacecharge_min_V else V_full_min['V_prepare']]*interest_region_size,color='tab:purple',linestyle=':')
     
@@ -360,15 +360,15 @@ def _plot_potential_shape(potential_df:pl.DataFrame,
     ax.table(cellText=[[f"{(V_full_max['V_prepare'] - V_full_min['V_prepare']).item():.2f}",
                         f"{V_full_min['V_prepare'].item():.2f}",
                         f"{V_full_max['V_prepare'].item():.2f}",
-                        f"{potential_df.filter('full_trap')['z [mm]'].last() - potential_df.filter('full_trap')['z [mm]'].first():.2f}",
-                        f"{potential_df.filter('full_trap')['z [mm]'].first():.2f}",
-                        f"{potential_df.filter('full_trap')['z [mm]'].last():.2f}"],
+                        f"{potential_df.filter('full_trap').select(pl.last('z [mm]')).item() - potential_df.filter('full_trap').select(pl.first('z [mm]')).item():.2f}",
+                        f"{potential_df.filter('full_trap').select(pl.first('z [mm]')).item():.2f}",
+                        f"{potential_df.filter('full_trap').select(pl.last('z [mm]')).item():.2f}"],
                        [f"{(V_filled_max['V_prepare'] - V_filled_min['V_prepare']).item():.2f}",
                         f"{V_filled_min['V_prepare'].item():.2f}",
                         f"{V_filled_max['V_prepare'].item():.2f}",
-                        f"{potential_df.filter('filled_trap')['z [mm]'].last() - potential_df.filter('filled_trap')['z [mm]'].first():.2f}",
-                        f"{potential_df.filter('filled_trap')['z [mm]'].first():.2f}",
-                        f"{potential_df.filter('filled_trap')['z [mm]'].last():.2f}"]
+                        f"{potential_df.filter('filled_trap').select(pl.last('z [mm]')).item() - potential_df.filter('filled_trap').select(pl.first('z [mm]')).item():.2f}",
+                        f"{potential_df.filter('filled_trap').select(pl.first('z [mm]')).item():.2f}",
+                        f"{potential_df.filter('filled_trap').select(pl.last('z [mm]')).item():.2f}"]
                        ],
              rowLabels=tbl_rows,
              colLabels=tbl_cols,
@@ -436,7 +436,7 @@ def _calculate_initial_conditions(potential_df:pl.DataFrame,
     z_random = gennorm.rvs(beta=beta,loc=loc,scale=scale,size=(iterations,N_particles))
     V_launch_random = spl_V_launch(z_random)
     V_prepare_random = spl_V_prepare(z_random)
-    dV_random = np.random.uniform(1e-6,1,size=(iterations,N_particles)) * spl_dV(z_random)
+    dV_random = np.random.uniform(0,1,size=(iterations,N_particles)) * spl_dV(z_random)
     z_limit = potential_df.filter("filled_trap").select(pl.min('z [mm]')).item()
 
     random_initial_conditions = (pl.DataFrame({"iteration":np.arange(0,iterations),
@@ -527,10 +527,10 @@ def _calculate_velocities(particles_df:pl.DataFrame,
     Calculate valocities baed on the initial conditions
     '''
     # calculate v(z) first
-    particles_df = (particles_df.with_columns(pl.when(pl.col("z_i [mm]").is_between(pl.col('z [mm]'),pl.col('z [mm]')+dx_mm))
-                                              .then(pl.col("dV_i"))
-                                              .when(pl.col('z [mm]')>=pl.col("z_i [mm]"))
+    particles_df = (particles_df.with_columns(pl.when(pl.col('z [mm]')>=pl.col("z_i [mm]"))
                                               .then(pl.col('V_launch_i') - pl.col("V_launch"))
+                                              .when(pl.col("z_i [mm]").is_between(pl.col('z [mm]'),pl.col('z [mm]')+dx_mm))
+                                              .then(pl.col("dV_i"))
                                               .alias("dV")
                                               )
                                  .with_columns((np.sqrt(2 * pl.col("dV") / mq) * loader.SPEED_OF_LIGHT).alias("v [m/s]")))
@@ -550,9 +550,10 @@ def _calculate_times(particles_df:pl.DataFrame,
     '''
     Calculate times it takes each particle to reach the detector.
     '''
-    times_df = (particles_df.with_columns(pl.when(pl.col('z [mm]')>=pl.col("z_i [mm]"))
+    times_df = (particles_df.with_columns(pl.when(pl.col('z [mm]')>=pl.col("z_i [mm]"),pl.col('v [m/s]')>0)
                                           .then(dx_mm/1000 / pl.col("v [m/s]"))
-                                          .otherwise((pl.col("z_i [mm]") - pl.col('z [mm]')) / 1000 / pl.col("v [m/s]"))
+                                          .when(pl.col("z_i [mm]").is_between(pl.col('z [mm]'),pl.col('z [mm]')+dx_mm),pl.col('v [m/s]')>0)
+                                          .then((pl.col("z_i [mm]") - pl.col('z [mm]')) / 1000 / pl.col("v [m/s]"))
                                           .fill_null(0)
                                           .alias("dt [s]"))
                 .group_by('iteration','particle',"z_i [mm]")
@@ -856,8 +857,6 @@ def calculate_tof(mq:Union[float,list[float]],
     elif isinstance(weights,(float,int)):
         weights = [weights]
 
-    file_suffix = f"floor={trap_floor_V}V_wall={trap_wall_V}V_spacecharge={spacecharge_min_V}-{spacecharge_max_V}V_dt={tof_dt*1e9}ns_N={N_particles}x{iterations}"
-
     potential = _calculate_potential_shape(trap_floor_V=trap_floor_V,
                                            trap_wall_V=trap_wall_V,
                                            pulse_wall_to_V=pulse_wall_to_V,
@@ -866,10 +865,11 @@ def calculate_tof(mq:Union[float,list[float]],
                                            trap_right_wall=trap_right_wall,
                                            verbose_level=verbose_level)
     
-    potential = _fill_trap(potential_df=potential,
+    potential,spacecharge_min_V,spacecharge_max_V = _fill_trap(potential_df=potential,
                            spacecharge_min_V=spacecharge_min_V,
                            spacecharge_max_V=spacecharge_max_V,
                            verbose_level=verbose_level)
+    file_suffix = f"floor={trap_floor_V}V_wall={trap_wall_V}V_spacecharge={spacecharge_min_V:.2f}-{spacecharge_max_V:.2f}V_dt={tof_dt*1e9:.0f}ns_N={N_particles}x{iterations}"
     
     if savedata_mask & 0x02:
         _save_data(data=potential,title='potential',file_prefix=file_prefix,file_suffix=file_suffix)
@@ -905,12 +905,12 @@ def calculate_tof(mq:Union[float,list[float]],
             print(f"m/q={mqi}")
         mq_eV = mqi * loader.ATOMIC_UNIT_TO_KEV * 1000
 
-        ToF_expected_lower = (distance_to_mcp_m - potential.filter("filled_trap")['z [mm]'].last()/1000) * np.sqrt((mq_eV) / (2*trap_floor_V)) / loader.SPEED_OF_LIGHT
-        ToF_expected_upper = (distance_to_mcp_m - potential.filter("filled_trap")['z [mm]'].first()/1000) * np.sqrt((mq_eV) / (2*trap_floor_V)) / loader.SPEED_OF_LIGHT
+        ToF_expected_lower = (distance_to_mcp_m - potential.filter("filled_trap").select(pl.last('z [mm]')).item()/1000) * np.sqrt((mq_eV) / (2*trap_floor_V)) / loader.SPEED_OF_LIGHT
+        ToF_expected_upper = (distance_to_mcp_m - potential.filter("filled_trap").select(pl.first('z [mm]')).item()/1000) * np.sqrt((mq_eV) / (2*trap_floor_V)) / loader.SPEED_OF_LIGHT
         ToF_expected = distance_to_mcp_m * np.sqrt((mq_eV) / (2*trap_floor_V)) / loader.SPEED_OF_LIGHT
         if verbose_level > 1:
             print("Distance to mcp:",distance_to_mcp_m,"m")
-            print("Distance range:",distance_to_mcp_m - potential.filter("filled_trap")['z [mm]'].last()/1000,"m :", distance_to_mcp_m - potential.filter("filled_trap")['z [mm]'].first()/1000,"m")
+            print("Distance range:",distance_to_mcp_m - potential.filter("filled_trap").select(pl.last('z [mm]')).item()/1000,"m :", distance_to_mcp_m - potential.filter("filled_trap").select(pl.first('z [mm]')).item()/1000,"m")
             print("Expected ToF:",ToF_expected,"s")
             print("Expected ToF range:",ToF_expected_lower,ToF_expected_upper,"s")
 

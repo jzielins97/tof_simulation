@@ -6,36 +6,38 @@ if [ $# -lt 4 ];then
     exit 2
 fi
 
-# main path where the thing starts
-INIT_PATH=$( pwd )
+# # main path where the thing starts
+# INIT_PATH=$( pwd )
 
-# default arguments for keeping everything clean
+# # default arguments for keeping everything clean
 CLUSTERID=$1
 PROCESSID=$2
-
-TMPDIR=$INIT_PATH/tof_$CLUSTERID.$PROCESSID
-mkdir $TMPDIR
-if [ -d "$TMPDIR" ];then
-    cd $TMPDIR
-else
-    echo "WARNING: file ${TMPDIR} was not created, used a tmpdir as the name"
-    TMPDIR=tmpdir
-    mkdir $TMPDIR
-    cd $TMPDIR
-    pwd
-fi
-
+echo "Running job ${CLUSTERID}.${PROCESSID}"
+# TMPDIR=$INIT_PATH/tof_$CLUSTERID.$PROCESSID
+# mkdir $TMPDIR
+# if [ -d "$TMPDIR" ];then
+#     cd $TMPDIR
+# else
+#     echo "WARNING: file ${TMPDIR} was not created, used a tmpdir as the name"
+#     TMPDIR=tmpdir
+#     mkdir $TMPDIR
+#     cd $TMPDIR
+#     pwd
+# fi
+pwd
 # other arguments
-SPACECHARGE_MIN=$3
-SPACECHARGE_MAX=$4
+TRAP_FLOOR=$3
+TRAP_WALL=$4
+SPACECHARGE_MIN=$5
+SPACECHARGE_MAX=$6
 
 analysis_path="/afs/cern.ch/work/j/jzielins/public/tof_simulation"
 analysis_script=calculate_tof.py
 
-for file in ${analysis_script} modules
-do
-    cp -r ${analysis_path}/$file $TMPDIR/
-done
+# for file in ${analysis_script} modules
+# do
+#     cp -r ${analysis_path}/$file $TMPDIR/
+# done
 
 if [ ! -f ${analysis_script} ]; then
     echo "ERROR: file ${analysis_script} wasn't copied correctly." >&2
@@ -45,31 +47,35 @@ fi
 mkdir data plots
 
 # check if all the files were copied
-ls
-ls modules
+ls -A
 
 # activate python venv
-source ${analysis_path}/venv/bin/activate
+# source ${analysis_path}/venv/bin/activate
+. /cvmfs/sft.cern.ch/lcg/views/LCG_108/x86_64-el9-gcc15-opt/setup.sh
+export PYTHONPATH=./site-packages/:$PYTHONPATH
 
 # run simulation code
-python calculate_tof.py --trap_wall_V 150  --trap_floor_V 120 --spacecharge_min_V ${SPACECHARGE_MIN} --spacecharge_max_V ${SPACECHARGE_MAX} --savedata_mask 0xf --plot_mask 1f --showfig False --savefig True --fig_format png --verbose_level 3 tof_pbar
+python calculate_tof.py --trap_wall_V ${TRAP_WALL}  --trap_floor_V ${TRAP_FLOOR} --spacecharge_min_V ${SPACECHARGE_MIN} --spacecharge_max_V ${SPACECHARGE_MAX} --savedata_mask 0x1 --plot_mask 1f --showfig False --savefig True --fig_format png --verbose_level 3 tof_pbar
 
 # check if any data was created
 if [ "$(ls -A data)" ]; then
-    cp data/* ${analysis_path}/data/
+    # cp data/* ${analysis_path}/data/
+    echo "Created following data files:"
+    ls data
 else
     echo "WARNING: no data created" >&2
 fi
 
 # check if any plot was created
 if [ "$(ls -A plots)" ]; then
-    cp plots/* ${analysis_path}/plots/
+    # cp plots/* ${analysis_path}/plots/
+    echo "Created following plots"
 else
     echo "WARNING: no plots created" >&2
 fi
 
-cd $INIT_PATH
-if [[ -d $TMPDIR && $TMPDIR != "/afs/cern.ch/user/j/jzielins" ]];then
-    echo "I'm in $( pwd ) trying to rm ${TMPDIR}"
-    rm -r $TMPDIR
-fi
+# cd $INIT_PATH
+# if [[ -d $TMPDIR && $TMPDIR != "/afs/cern.ch/user/j/jzielins" ]];then
+#     echo "I'm in $( pwd ) trying to rm ${TMPDIR}"
+#     rm -r $TMPDIR
+# fi

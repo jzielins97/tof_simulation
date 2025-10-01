@@ -1,4 +1,20 @@
 
+# Setup on lxplus
+This program requires newer version of polars, which isn't available on lxplus as of 01/10/2025.
+This means that the package must be installed locally and then used by the batch system.
+The instruction on how to install custom libraries is provided in (brachdocs)[https://batchdocs.web.cern.ch/specialpayload/python.html]
+In short, one needs to do:
+1. source LCG with python:
+```sh
+$ . /cvmfs/sft.cern.ch/lcg/views/LCG_108/x86_64-centos9-gcc15-opt/setup.sh
+```
+2. Install in your eos directory polars:
+```sh
+$ PYTHONUSERBASE=/eos/user/j/jzielins/.local/ pip3 install --user polars==1.32.00
+```
+## Update files with your path
+There are two scripts that use this location. One is the bin/setup.sh script that can be used to load environment to test the program. The other is SubmitTof.sub script for submitting scripts on HTCondor service. In both cases you only need to update the path to your user directory on eos.
+
 usage: calculate_tof.py [-h] --trap_floor_V TRAP_FLOOR_V --trap_wall_V TRAP_WALL_V [--pulse_wall_to_V PULSE_WALL_TO_V] [--distance_to_mcp_m DISTANCE_TO_MCP_M] [--spacecharge_min_V SPACECHARGE_MIN_V]
                         [--spacecharge_max_V SPACECHARGE_MAX_V] [--trap_left_wall TRAP_LEFT_WALL [TRAP_LEFT_WALL ...]] [--trap_floor TRAP_FLOOR [TRAP_FLOOR ...]]
                         [--trap_right_wall TRAP_RIGHT_WALL [TRAP_RIGHT_WALL ...]] [--thermalised THERMALISED] [--N_particles N_PARTICLES] [--iterations ITERATIONS] [--tof_range TOF_RANGE TOF_RANGE]
