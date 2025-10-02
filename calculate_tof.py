@@ -237,7 +237,7 @@ def _fill_trap(potential_df:pl.DataFrame,
               spacecharge_min_V:Optional[float] = None,
               spacecharge_max_V:Optional[float] = None,
               verbose_level:int = 0
-              )->tuple[pl.DataFrame,float,float]:
+              )->pl.DataFrame:
     '''
     Find region of the trap which is filled with particles
     '''
@@ -284,7 +284,7 @@ def _fill_trap(potential_df:pl.DataFrame,
         print("Calculated potentials")
         print(potential_df)
 
-    return potential_df,spacecharge_min_V,spacecharge_max_V
+    return potential_df
 
 
 def _plot_potential_shape(potential_df:pl.DataFrame,
@@ -857,6 +857,8 @@ def calculate_tof(mq:Union[float,list[float]],
     elif isinstance(weights,(float,int)):
         weights = [weights]
 
+    file_suffix = f"floor={trap_floor_V}V_wall={trap_wall_V}V_spacecharge={f'{spacecharge_min_V:.2f}' if spacecharge_min_V else 'None'}-{f'{spacecharge_max_V:.2f}' if spacecharge_max_V else 'None'}V_dt={tof_dt*1e9:.0f}ns_N={N_particles}x{iterations}"
+        
     potential = _calculate_potential_shape(trap_floor_V=trap_floor_V,
                                            trap_wall_V=trap_wall_V,
                                            pulse_wall_to_V=pulse_wall_to_V,
@@ -865,11 +867,10 @@ def calculate_tof(mq:Union[float,list[float]],
                                            trap_right_wall=trap_right_wall,
                                            verbose_level=verbose_level)
     
-    potential,spacecharge_min_V,spacecharge_max_V = _fill_trap(potential_df=potential,
+    potential = _fill_trap(potential_df=potential,
                            spacecharge_min_V=spacecharge_min_V,
                            spacecharge_max_V=spacecharge_max_V,
                            verbose_level=verbose_level)
-    file_suffix = f"floor={trap_floor_V}V_wall={trap_wall_V}V_spacecharge={spacecharge_min_V:.2f}-{spacecharge_max_V:.2f}V_dt={tof_dt*1e9:.0f}ns_N={N_particles}x{iterations}"
     
     if savedata_mask & 0x02:
         _save_data(data=potential,title='potential',file_prefix=file_prefix,file_suffix=file_suffix)
