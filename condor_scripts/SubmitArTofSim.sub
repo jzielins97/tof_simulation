@@ -1,0 +1,12 @@
+fragments_file=Ar40_trappable.parquet
+executable = SimulatePbarTof.sh
+arguments  = $(ClusterId) $(ProcId) 180 190 $(spacecharge_min) None $(fragments_file)
+output     = $(executable).$(ClusterId).$(ProcId).out
+error      = $(executable).$(ClusterId).$(ProcId).err
+log        = log/$(executable).$(ClusterId).$(ProcId).log
+transfer_input_files = root://eosuser.cern.ch//eos/user/j/jzielins/.local/lib/python3.12/site-packages/, ../calculate_tof.py, ../modules/,../fragments_data/$(fragments_file)
+output_destination = root://eosuser.cern.ch//eos/user/j/jzielins/tof_simulation/Ar40/wall_190/floor_180/$(spacecharge_min)-None/
+transfer_output_files = data/, plots/
+MY.XRDCP_CREATE_DIR = True
++JobFlavour = "testmatch"
+queue spacecharge_min from seq 0.00 0.10 1.00 |

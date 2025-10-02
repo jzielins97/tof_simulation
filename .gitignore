@@ -1,7 +1,9 @@
 *~
+fragments_data/**
 data/**
 plots/**
 venv/**
+**parquet
 **__pycache__**
 condor_scripts/error
 condor_scripts/output
