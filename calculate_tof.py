@@ -857,7 +857,7 @@ def calculate_tof(mq:Union[float,list[float]],
     elif isinstance(weights,(float,int)):
         weights = [weights]
 
-    file_suffix = f"floor={trap_floor_V}V_wall={trap_wall_V}V_spacecharge={f'{spacecharge_min_V:.2f}' if spacecharge_min_V else 'None'}-{f'{spacecharge_max_V:.2f}' if spacecharge_max_V else 'None'}V_dt={tof_dt*1e9:.0f}ns_N={N_particles}x{iterations}"
+    file_suffix = f"floor={trap_floor_V}V_wall={trap_wall_V}V_spacecharge={f'{spacecharge_min_V:.2f}' if spacecharge_min_V else 'None'}-{f'{spacecharge_max_V:.2f}' if spacecharge_max_V else 'None'}V_dt={tof_dt*1e9:.0f}ns_thermal={thermalised}_N={N_particles}x{iterations}"
         
     potential = _calculate_potential_shape(trap_floor_V=trap_floor_V,
                                            trap_wall_V=trap_wall_V,
@@ -876,7 +876,6 @@ def calculate_tof(mq:Union[float,list[float]],
         _save_data(data=potential,title='potential',file_prefix=file_prefix,file_suffix=file_suffix)
 
     if bool(plot_mask & 0x01) & (showfig | savefig):
-        print("Plotting fig with potentials")
         fig1,_ = _plot_potential_shape(potential_df=potential,
                                        trap_floor_V=trap_floor_V,
                                        trap_wall_V=trap_wall_V,
