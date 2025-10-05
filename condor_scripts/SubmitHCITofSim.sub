@@ -1,5 +1,6 @@
-dir_name = Ar40
-fragments_file = Ar40_trappable.parquet
+dir_name = HCI
+fragments_file=HCI_trappable.parquet
+executable = SimulateFragmentsTof.sh
 trap_wall = 190
 trap_floor = 180
 spacecharge_max = None

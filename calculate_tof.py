@@ -37,9 +37,9 @@ parser.add_argument('--pulse_wall_to_V',type=float,default=0,
                     help="Expected voltage on the right wall electrodes during the launch of particles from the trap")
 parser.add_argument('--distance_to_mcp_m',type=float,default=1.05,
                     help="Distance between the middle electrode used for the floor of the trap and the MCP used for measuring the tof spectra")
-parser.add_argument('--spacecharge_min_V',type=float,default=None,
+parser.add_argument('--spacecharge_min_V',default=None,
                     help="Minimum space charge felt by the particles")
-parser.add_argument('--spacecharge_max_V',type=float,default=None,
+parser.add_argument('--spacecharge_max_V',default=None,
                     help="Maximum space charge felt by the particles")
 parser.add_argument('--trap_left_wall',nargs='+',type=str,default=['P7','P8','P9'],
                     help="Electrodes used as left wall of the trap")
@@ -107,6 +107,16 @@ if isinstance(args.showfig,str):
     args.showfig = _bool(args.showfig)
 if isinstance(args.savedata_mask,str):
     args.savedata_mask = int(args.savedata_mask,base=16)
+try:
+    args.spacecharge_min_V=float(str(args.spacecharge_min_V))
+except ValueError:
+    args.spacecharge_min_V=None
+try:
+    args.spacecharge_max_V=float(str(args.spacecharge_max_V))
+except ValueError:
+    args.spacecharge_max_V=None
+    
+    
 
 # for fitting the peak from tof and finding the maximum position
 def _fit_function(x, a, b, c, d=0):
@@ -853,11 +863,11 @@ def calculate_tof(mq:Union[float,list[float]],
     elif isinstance(labels,str):
         labels = [labels]
     if weights is None:
-        weights = [1]*len(mq)
+        weights = [1.0]*len(mq)
     elif isinstance(weights,(float,int)):
-        weights = [weights]
+        weights = [float(weights)]
 
-    file_suffix = f"floor={trap_floor_V}V_wall={trap_wall_V}V_spacecharge={f'{spacecharge_min_V:.2f}' if spacecharge_min_V else 'None'}-{f'{spacecharge_max_V:.2f}' if spacecharge_max_V else 'None'}V_dt={tof_dt*1e9:.0f}ns_thermal={thermalised}_N={N_particles}x{iterations}"
+    file_suffix = f"floor={trap_floor_V}V_wall={trap_wall_V}V_spacecharge={f'{spacecharge_min_V:.2f}' if isinstance(spacecharge_min_V,float) else 'None'}-{f'{spacecharge_max_V:.2f}' if isinstance(spacecharge_max_V,float) else 'None'}V_dt={tof_dt*1e9:.0f}ns_thermal={thermalised}_N={N_particles}x{iterations}"
         
     potential = _calculate_potential_shape(trap_floor_V=trap_floor_V,
                                            trap_wall_V=trap_wall_V,
@@ -926,7 +936,7 @@ def calculate_tof(mq:Union[float,list[float]],
                                                   dx_mm=TTrap.dx,
                                                   verbose_level=verbose_level)
         
-        if bool(plot_mask & 0x02) & (showfig | savefig):
+        if bool(plot_mask & 0x02) & (showfig | savefig) & (i==0):
             fig2,_ = _plot_initial_conditions(particles_df=particles,
                                               potential_df=potential,
                                               loc=loc,
@@ -935,7 +945,7 @@ def calculate_tof(mq:Union[float,list[float]],
                                               dpi=dpi,
                                               savefig=savefig,
                                               file_prefix=file_prefix,
-                                              file_suffix=f"mq={mqi}_"+file_suffix,
+                                              file_suffix=file_suffix,
                                               fig_format=fig_format)
             if not showfig:
                 plt.close(fig2)
@@ -1047,9 +1057,10 @@ def tof_pbar()->None:
 
 
 def tof_fragments()->None:
-    df_simulated_data = pl.read_parquet(loader.build_data_path("trappable_Ar40_m-over-q.parquet"))
-    df_simulated_data = df_simulated_data.with_columns(pl.col("tof_s").sub(pl.col("tof_exp_s")).alias("dt"))
-    print(df_simulated_data)
+    # df_simulated_data = pl.read_parquet(loader.build_data_path("trappable_Ar40_m-over-q.parquet"))
+    df_simulated_data = pl.read_parquet(args.fragments_data_path)
+    # df_simulated_data = df_simulated_data.with_columns(pl.col("tof_s").sub(pl.col("tof_exp_s")).alias("dt"))
+    # print(df_simulated_data)
 
     calculate_tof(mq = df_simulated_data['m_over_q'],
                   labels=df_simulated_data['label'],
