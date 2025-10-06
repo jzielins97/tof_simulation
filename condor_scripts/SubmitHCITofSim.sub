@@ -8,7 +8,7 @@ thermalised = False
 iterations = 20
 N = 25000
 executable = SimulateTof.sh
-arguments  = $(ClusterId) $(ProcId) --trap_wall_V $(trap_wall) --trap_floor_V $(trap_floor) --spacecharge_min_V $(spacecharge_min) --spacecharge_max_V $(spacecharge_max) --thermalised $(thermalised) --N_particles $(N) --iterations $(iterations) --file_prefix $(dir_name) --savedata_mask 0x01 --plot_mask 0x13 --showfig False --savefig True --fig_format png --verbose_level 3 tof_fragments --fragments_data_path $(fragments_file)
+arguments  = $(ClusterId) $(ProcId) --trap_wall_V $(trap_wall) --trap_floor_V $(trap_floor) --spacecharge_min_V $(spacecharge_min) --spacecharge_max_V $(spacecharge_max) --thermalised $(thermalised) --N_particles $(N) --iterations $(iterations) --file_prefix $(dir_name) --savedata_mask 0x01 --plot_mask 0x13 --showfig False --savefig True --fig_format png --verbose_level 2 tof_fragments --fragments_data_path $(fragments_file)
 output     = output/$(executable).$(dir_name).$(ClusterId).$(ProcId).out
 error      = error/$(executable).$(dir_name).$(ClusterId).$(ProcId).err
 log        = log/$(executable).$(dir_name).$(ClusterId).$(ProcId).log
@@ -16,5 +16,6 @@ transfer_input_files = root://eosuser.cern.ch//eos/user/j/jzielins/.local/lib/py
 output_destination = root://eosuser.cern.ch//eos/user/j/jzielins/tof_simulation/$(dir_name)/wall_$(trap_wall)/floor_$(trap_floor)/$(spacecharge_min)-$(spacecharge_max)/
 transfer_output_files = data/, plots/
 MY.XRDCP_CREATE_DIR = True
+RequestCpus = 4
 +JobFlavour = "testmatch"
 queue spacecharge_min from seq 0.00 0.02 2.00 |
