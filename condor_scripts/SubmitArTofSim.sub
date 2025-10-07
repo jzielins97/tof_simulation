@@ -3,7 +3,7 @@ fragments_file = Ar40_trappable.parquet
 trap_wall = 190
 trap_floor = 180
 spacecharge_max = None
-thermalised = False
+thermalised = True
 iterations = 20
 N = 25000
 executable = SimulateTof.sh
@@ -17,4 +17,4 @@ transfer_output_files = data/, plots/
 MY.XRDCP_CREATE_DIR = True
 +JobFlavour = "testmatch"
 RequestCpus = 4
-queue spacecharge_min from seq 0.00 0.02 2.00 |
+queue spacecharge_min from seq 0.00 0.02 4.00 |
