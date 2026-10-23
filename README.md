@@ -13,6 +13,28 @@ Run the tests with `python -m pytest` from the repository root.
 - **Time of flight** (`calculate_tof.py`): between points of the potential the force is assumed constant (exact time 2Δz/(v_a+v_b)). After the end of the potential the particle drifts with its final velocity to the MCP. Particles which cannot leave the trap are reported as trapped and are not counted.
 - **Signal**: fraction of the simulated particles per time bin, averaged over all iterations (empty bins count as zero). The time of a bin is its centre.
 
+# Tracking engine (`--engine tracking`)
+The default `legacy` engine is the 1D model described above. The tracking engine replaces it with:
+- **Field solver** (`modules/field_solver.py`, `modules/geometry.py`): five-point finite differences of the Laplace/Poisson equation on an (r, z) grid (default 0.25 mm). For cylindrical electrodes this is the full 3D potential. The electrode positions come from `TTrap`, the radius is 15 mm, the potential is linear in the gaps, and the ends of the tube are grounded. The system is solved directly (sine transform along z, tridiagonal solves along r) in about 10 ms. On axis it agrees with `ElectrodesPotentialMap.txt`: the C trap matches to <0.1 %. The P-trap rows of the map are shifted by about +0.95 mm relative to the `TTrap` electrode positions, and the HV electrodes differ in shape.
+- **Initial conditions** (`modules/plasma.py`, `--model`):
+  - `cloud`: non-interacting particles in thermal equilibrium (`--temperature_K`, `--T_perp_K`). Along the field lines they follow the Boltzmann distribution in the trap potential, the radial profile is Gaussian (`--cloud_radius_mm`), and velocities are Maxwellian.
+  - `plasma`: global thermal equilibrium of a non-neutral plasma with all species. The self-consistent space charge is found by solving the Poisson–Boltzmann equation with Newton iterations. The rotation frequency is chosen to give `--plasma_radius_mm` (sqrt(2⟨r²⟩), i.e. the edge of a uniform column). `--n_charges` elementary charges are shared between species according to their weights. A plasma that does not fit into the well is rejected.
+  - `legacy`: the generalised normal z distribution and uniform energies of the 1D model. Half of the particles start moving backwards unless `--forward_only True`.
+  - Only particles with axial energy below the barrier are kept.
+- **Tracking** (`modules/tracker.py`, `--tracker`):
+  - `gc` (default): guiding centres move along the field lines with force qE_z − μ dB/dz (leapfrog, `--dt_s`). After the end of the electric field they drift to the MCP. In a non-uniform field (`--B_profile` csv with columns `z_m,Bz_T`) the magnetic moment is conserved.
+  - `boris`: full 3D motion, for validation.
+  - The right wall can be pulsed with a finite rise time (`--pulse_rise_time_s`).
+  - `--space_charge dynamic` recomputes the space charge field from the particles every `--poisson_every` steps; `initial` uses space charge only for the initial equilibrium.
+- **Charge states**: needed for thermal velocities and space charge. Use `tof --charge`. `tof_fragments` reads a `charge` or `fragmentZ` column.
+- **Output**: same columns as the legacy engine. Plot bit 0x20 shows the potentials and the initial conditions. Save bits: 0x02 on-axis potentials, 0x04 initial conditions, 0x08 arrival times.
+
+Example (He²⁺ released from a plasma with 10⁶ charges, 1 mm radius at 300 K):
+```sh
+python calculate_tof.py --trap_floor_V 180 --trap_wall_V 190 --engine tracking --model plasma --n_charges 1e6 --plasma_radius_mm 1 --temperature_K 300 --plot_mask 0x30 tof --mq 2.0013 --charge 2
+```
+Typical run times (25000 particles per iteration, one species): cloud ~1 s, plasma with dynamic space charge ~12 s. With 10 species: ~30 s and ~70 s.
+
 # Setup on lxplus
 This program requires newer version of polars, which isn't available on lxplus as of 01/10/2025.
 This means that the package must be installed locally and then used by the batch system.
