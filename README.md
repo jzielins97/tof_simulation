@@ -1,4 +1,7 @@
 
+# Documentation
+[`docs/tof_simulation.md`](docs/tof_simulation.md) explains the physics of the simulation (fragment trapping, potentials, initial conditions, extraction and the TOF spectrum) and how to use it (commands, options, outputs, choice of parameters).
+
 # Local environment (miniforge)
 The pinned dependencies are listed in `requirements.txt`. To recreate the environment:
 ```sh
