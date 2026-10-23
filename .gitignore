@@ -11,3 +11,4 @@ condor_scripts/log
 *.egg-info/
 modules/cache/
 .pytest_cache/
+benchmarks/output/
