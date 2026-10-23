@@ -22,5 +22,11 @@ run continues where it stopped. Plots and tables are written to `benchmarks/outp
   - The three runs are averaged; t = trigger + 10 us. The spectrum is fitted with non-negative amplitudes of the simulated species:
     - pbar–Ar40 fragments (Geant4 yields, 12 kV catching potential), with fixed relative yields and one amplitude;
     - H2+, He+, He2+ and Ar 1+ to 18+, each with a free amplitude.
-  - A common time shift and a time scale (effective flight distance) are fitted.
+  - The time calibration (launch delay after the trigger and effective flight distance) is fitted to the positions of the five main peaks (He2+, He+, Ar3+, Ar2+, Ar+), each produced by one gas ion. The spectrum is then fitted at that calibration.
+  - A free scan of the calibration over 0.99–1.22 m is also reported (`*_free_scan` columns). Its minimum isn't always physical, because the many free amplitudes can compensate for a wrong time axis.
+  - Simulated histograms (10 ns bins) are moved to the data bins by spreading each bin uniformly over its stretched width, which avoids aliasing spikes when the two grids don't line up.
   - He+ (m/q 4.003) and Ar10+ (3.996) can't be separated, so their amplitudes are degenerate.
+- **First Ar40 peak** (`python benchmarks/plot_ar40_first_peak.py`, after `ar40_runs.py`):
+  - The m/q ≈ 2 peak is fitted with He2+ and the fragment sum only, for the best cloud and the best plasma configuration, using the peak-position calibration.
+  - The two configurations are re-simulated with more ions (cloud 10000×9, plasma 10000×3 per species). The cloud keeps only He2+ and the fragments, since its ions don't interact; the plasma keeps all species, which share the space charge.
+  - Output: `ar40_first_peak.png`.

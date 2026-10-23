@@ -50,6 +50,21 @@ def simulated_on_grid(signal:pl.DataFrame, edges:np.ndarray) -> np.ndarray:
     return np.bincount(index[inside], weights=y[inside], minlength=len(edges) - 1)
 
 
+def resample(t:np.ndarray, y:np.ndarray, sim_bin:float, edges:np.ndarray, scale:float = 1.0, shift:float = 0.0) -> np.ndarray:
+    '''
+    Content of a simulated histogram (values y in bins of width sim_bin centred at t, starting at 0) in the bins defined
+    by edges, after the time transformation t -> t * scale + shift. Each simulated bin is spread uniformly over its
+    (transformed) width, so the result has no aliasing when the bins of the two grids don't line up.
+    '''
+    index = np.rint(t / sim_bin - 0.5).astype(np.int64)
+    if len(index) == 0:
+        return np.zeros(len(edges) - 1)
+    content = np.bincount(index, weights=y, minlength=index.max() + 1)
+    cumulative = np.concatenate([[0.0], np.cumsum(content)])
+    sim_edges = np.arange(len(cumulative)) * sim_bin * scale + shift
+    return np.diff(np.interp(edges, sim_edges, cumulative))
+
+
 def peak_time(t:np.ndarray, y:np.ndarray, search_from:float = 0.0, smooth_bins:int = 5) -> float:
     '''
     Time of the maximum of the smoothed signal after search_from.

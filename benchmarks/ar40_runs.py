@@ -6,7 +6,8 @@ The model of the spectrum is a non-negative combination of simulated species:
  - fragments of antiproton annihilation on Ar40 (Geant4 yields of trapped fragments, fully stripped) with relative
    yields fixed by the simulation and one free amplitude,
  - ions of the residual gas (H2+, He+, He2+, Ar40 q=1..18) with free amplitudes.
-A common time shift of the simulation (launch delay with respect to the trigger) is fitted for each configuration.
+The time calibration (launch delay with respect to the trigger and effective flight distance) is fitted to the positions
+of the main peaks (He2+, He+, Ar3+, Ar2+, Ar+); a free scan of the calibration is reported for comparison.
 Configurations: legacy 1D engine (space charge limits), tracking engine with a thermal cloud and with a plasma
 (the plasma uses the abundances found with the best cloud fit). Results are written to benchmarks/output/ar40_*.
 
@@ -18,6 +19,7 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("POLARS_MAX_THREADS", "1")
 import argparse
+import json
 import time
 from concurrent.futures import ProcessPoolExecutor
 
@@ -28,17 +30,19 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from common import HCI_DATA, cached_simulation, output_path, peak_time, rebin
+from common import HCI_DATA, cached_simulation, output_path, peak_time, rebin, resample
 import FragmentsDataLoader as loader
 
 T0_OFFSET = 10e-6 # s, trigger before the launch
 BIN = 50e-9 # s
+SIM_BIN = 10e-9 # s, bin of the simulated signals (tof_dt)
 T_RANGE = (5e-6, 45e-6) # s, range of the fit
 EDGES = np.arange(0, 50e-6 + BIN / 2, BIN)
 CENTRES = EDGES[:-1] + BIN / 2
 SHIFTS = np.arange(-600e-9, 600e-9 + 1e-12, 10e-9) # s, scanned time shifts of the simulation
-SCALES = np.arange(0.95, 1.01 + 1e-9, 0.0025) # scanned time scale (effective flight distance / 1.05 m)
+SCALES = np.arange(0.94, 1.16 + 1e-9, 0.0025) # scanned time scale (effective flight distance / 1.05 m), covers 0.99-1.22 m
 FLOOR_V, WALL_V = 180.0, 190.0
+NOMINAL_DISTANCE_M = 1.05 # m, distance to the MCP used in the simulations (default of calculate_tof)
 # residual gas ions: label, m/q [u/e], charge
 GAS_IONS = ([("H2+", 2.01510, 1.0), ("He+", 4.002603, 1.0), ("He2+", 4.002603 / 2, 2.0)]
             + [(f"Ar{q}+", 39.962383 / q, float(q)) for q in range(1, 19)])
@@ -80,7 +84,7 @@ def fragment_species(catching_kV:float, max_species:int, half_life:float = 600.0
 
 def configurations(quick:bool) -> list[tuple[str,str,dict]]:
     N, iterations = (2000, 2) if quick else (5000, 3)
-    common = dict(trap_floor_V=FLOOR_V, trap_wall_V=WALL_V, tof_range=[0, 60e-6], tof_dt=10e-9, N_particles=N, iterations=iterations,
+    common = dict(trap_floor_V=FLOOR_V, trap_wall_V=WALL_V, tof_range=[0, 60e-6], tof_dt=SIM_BIN, N_particles=N, iterations=iterations,
                   showfig=False, seed=1)
     configs = []
     for sc_min, sc_max in ([(0.0, None), (4.0, None)] if quick else [(0.0, None), (4.0, None), (0.0, 0.3), (0.2, 1.2), (1.0, 3.0)]):
@@ -92,7 +96,7 @@ def configurations(quick:bool) -> list[tuple[str,str,dict]]:
 
 def plasma_configurations(quick:bool, weights:np.ndarray) -> list[tuple[str,str,dict]]:
     N, iterations = (1000, 2) if quick else (3000, 2)
-    common = dict(trap_floor_V=FLOOR_V, trap_wall_V=WALL_V, tof_range=[0, 60e-6], tof_dt=10e-9, N_particles=N, iterations=iterations,
+    common = dict(trap_floor_V=FLOOR_V, trap_wall_V=WALL_V, tof_range=[0, 60e-6], tof_dt=SIM_BIN, N_particles=N, iterations=iterations,
                   showfig=False, seed=1, engine="tracking", model="plasma", plasma_radius_mm=1.0, weights=list(map(float, weights)))
     grid = [(1e6, 1000)] if quick else [(1e6, 1000), (1e6, 10000), (5e6, 1000), (5e6, 10000)]
     return [("tracking plasma", f"N={n:.0e} T={T} K", dict(common, n_charges=n, temperature_K=T)) for n, T in grid]
@@ -123,12 +127,7 @@ class Components:
         self.values = [fragments_y] + [f["signal"].to_numpy() for f in frames[n_fragments:]]
 
     def matrix(self, scale:float = 1.0, shift:float = 0.0) -> np.ndarray:
-        columns = []
-        for t, y in zip(self.times, self.values):
-            index = np.floor((t * scale + shift) / BIN).astype(np.int64)
-            inside = (index >= 0) & (index < len(CENTRES))
-            columns.append(np.bincount(index[inside], weights=y[inside], minlength=len(CENTRES)))
-        return np.column_stack(columns)
+        return np.column_stack([resample(t, y, SIM_BIN, EDGES, scale, shift) for t, y in zip(self.times, self.values)])
 
 
 def _nnls(components:Components, measured:np.ndarray, selected:np.ndarray, noise:float, scale:float, shift:float):
@@ -137,25 +136,47 @@ def _nnls(components:Components, measured:np.ndarray, selected:np.ndarray, noise
     return amplitudes, residual_norm**2 / (selected.sum() - matrix.shape[1] - 1)
 
 
+def peak_calibration(data:dict, unshifted:np.ndarray, species:pl.DataFrame, n_fragments:int) -> tuple[float,float]:
+    '''
+    Time calibration t_data = scale * t_sim + shift from the positions of the main peaks, each produced by one gas ion.
+    Unlike the fit of the whole spectrum it can't be biased by trading amplitudes between species.
+    '''
+    gas_labels = species.slice(n_fragments)["label"].to_list()
+    t_data, t_sim = [], []
+    for ion, expected in MAIN_PEAKS:
+        around = (CENTRES > expected - 1.5e-6) & (CENTRES < expected + 1.5e-6)
+        t_data.append(peak_time(CENTRES[around], data["signal"][around]))
+        t_sim.append(peak_time(CENTRES, unshifted[:, 1 + gas_labels.index(ion)]))
+    scale, shift = np.polyfit(t_sim, t_data, 1)
+    return float(scale), float(shift)
+
+
 def fit(data:dict, signal:pl.DataFrame, species:pl.DataFrame, n_fragments:int) -> dict:
     '''
-    Non-negative fit of the component amplitudes for the scanned time shifts, with the nominal flight distance (scale = 1)
-    and with a fitted time scale (effective flight distance 1.05 m * scale).
+    Non-negative fit of the component amplitudes:
+     - with the time calibration (effective flight distance 1.05 m * scale and shift) from the positions of the main peaks
+       (main result),
+     - with the calibration scanned freely (the amplitudes of many species can compensate a wrong calibration,
+       so this minimum isn't always physical),
+     - with the nominal flight distance and the shift scanned.
     '''
     selected = (CENTRES >= T_RANGE[0]) & (CENTRES <= T_RANGE[1])
     measured = np.nan_to_num(data["signal"][selected]) / data["noise"]
     components = Components(signal, species, n_fragments)
-    nominal = min(((_nnls(components, measured, selected, data["noise"], 1.0, shift)[1], shift) for shift in SHIFTS))
-    best = min(((_nnls(components, measured, selected, data["noise"], scale, shift)[1], scale, shift) for scale in SCALES for shift in SHIFTS[::3]))
-    # refine the shift for the best scale
-    best = min(((_nnls(components, measured, selected, data["noise"], best[1], shift)[1], best[1], shift) for shift in SHIFTS))
-    chi2, scale, shift = best
-    amplitudes, _ = _nnls(components, measured, selected, data["noise"], scale, shift)
+    unshifted = components.matrix(1.0, 0.0)
+    scale, shift = peak_calibration(data, unshifted, species, n_fragments)
+    amplitudes, chi2 = _nnls(components, measured, selected, data["noise"], scale, shift)
     matrix = components.matrix(scale, shift)
-    return {"chi2": chi2, "scale": scale, "shift": shift, "chi2_nominal": nominal[0], "shift_nominal": nominal[1],
-            "chi2_no_shift": _nnls(components, measured, selected, data["noise"], 1.0, 0.0)[1],
-            "amplitudes": amplitudes, "model": matrix @ amplitudes, "components": matrix * amplitudes[None, :],
-            "unshifted": components.matrix(1.0, 0.0)}
+    nominal = min(((_nnls(components, measured, selected, data["noise"], 1.0, s)[1], s) for s in SHIFTS))
+    free = min(((_nnls(components, measured, selected, data["noise"], k, s)[1], k, s) for k in SCALES for s in SHIFTS[::3]))
+    # refine the shift for the best scale
+    free = min(((_nnls(components, measured, selected, data["noise"], free[1], s)[1], free[1], s) for s in SHIFTS))
+    return {"chi2": chi2, "scale": scale, "shift": shift, "amplitudes": amplitudes,
+            "model": matrix @ amplitudes, "components": matrix * amplitudes[None, :], "unshifted": unshifted,
+            "free_chi2": free[0], "free_scale": free[1], "free_shift": free[2],
+            "free_amplitudes": _nnls(components, measured, selected, data["noise"], free[1], free[2])[0],
+            "chi2_nominal": nominal[0], "shift_nominal": nominal[1],
+            "chi2_no_shift": _nnls(components, measured, selected, data["noise"], 1.0, 0.0)[1]}
 
 
 def peak_table(data:dict, results:dict, species:pl.DataFrame, n_fragments:int) -> pl.DataFrame:
@@ -182,7 +203,7 @@ def plot(data:dict, results:dict, species:pl.DataFrame, n_fragments:int) -> None
     fig, axes = plt.subplots(len(results) + 1, 1, figsize=(11, 3.2 * (len(results) + 1)), sharex=True)
     for ax, (name, result) in zip(axes, results.items()):
         ax.plot(CENTRES * 1e6, data["signal"] * 1e3, 'k-', lw=0.7, label=f"data (runs {', '.join(map(str, data['runs']))})")
-        ax.plot(CENTRES * 1e6, result["model"] * 1e3, '-', color='tab:red', lw=1, label=f"fit, chi2/dof={result['chi2']:.2f}, distance={1.05*result['scale']:.4f} m, shift={result['shift']*1e9:.0f} ns")
+        ax.plot(CENTRES * 1e6, result["model"] * 1e3, '-', color='tab:red', lw=1, label=f"fit, chi2/dof={result['chi2']:.2f}, distance={NOMINAL_DISTANCE_M*result['scale']:.4f} m, shift={result['shift']*1e9:.0f} ns (from peak positions)")
         ax.plot(CENTRES * 1e6, result["components"][:, 0] * 1e3, '-', color='tab:green', lw=1, label=r"$\bar{p}$-Ar40 fragments")
         ax.set_title(name, fontsize=9)
         ax.set_ylabel("MCP signal [mV]")
@@ -204,7 +225,10 @@ def plot(data:dict, results:dict, species:pl.DataFrame, n_fragments:int) -> None
 
 
 def summary_row(model:str, label:str, result:dict, runtime:float) -> dict:
-    return {"model": model, "label": label, "chi2_dof": result["chi2"], "distance_m": 1.05 * result["scale"], "shift_ns": result["shift"] * 1e9,
+    return {"model": model, "label": label, "chi2_dof": result["chi2"], "distance_m": NOMINAL_DISTANCE_M * result["scale"],
+            "shift_ns": result["shift"] * 1e9,
+            "chi2_dof_free_scan": result["free_chi2"], "distance_free_scan_m": NOMINAL_DISTANCE_M * result["free_scale"],
+            "shift_free_scan_ns": result["free_shift"] * 1e9,
             "chi2_dof_nominal_distance": result["chi2_nominal"], "shift_nominal_ns": result["shift_nominal"] * 1e9,
             "chi2_dof_no_shift": result["chi2_no_shift"],
             "fragment_fraction": result["components"][:, 0].sum() / result["model"].sum(), "runtime_s": runtime}
@@ -243,11 +267,14 @@ def main():
         result = fit(data, signal, species, n_fragments)
         results[f"{model} ({label})"] = result
         rows.append(summary_row(model, label, result, runtime))
-    # plasma with the abundances of the best cloud fit (number of ions = amplitude of the normalised signal)
-    cloud = min((r for r in rows if r["model"] == "tracking cloud"), key=lambda r: r["chi2_dof"])
-    amplitudes = results[f"tracking cloud ({cloud['label']})"]["amplitudes"]
+    # plasma with the abundances of the free-scan fit of the best cloud (number of ions = amplitude of the normalised signal)
+    cloud = min((r for r in rows if r["model"] == "tracking cloud"), key=lambda r: r["chi2_dof_free_scan"])
+    amplitudes = results[f"tracking cloud ({cloud['label']})"]["free_amplitudes"]
     weights = np.concatenate([fragments["yield"].to_numpy() / fragments["yield"].sum() * amplitudes[0], amplitudes[1:]])
     weights = np.maximum(weights, 1e-6 * weights.max())
+    # abundances used by the plasma simulations (needed to find them in the cache, e.g. by plot_ar40_first_peak.py)
+    with open(output_path("ar40_plasma_weights.json"), "w") as f:
+        json.dump(list(map(float, weights)), f)
     for model, label, parameters, signal, runtime, error in run_all(plasma_configurations(args.quick, weights)):
         if signal is None:
             print(f"{model} {label} failed: {error}")
