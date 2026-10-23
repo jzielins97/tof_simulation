@@ -1,4 +1,13 @@
 
+# Local environment (miniforge)
+The pinned dependencies are listed in `requirements.txt`. To recreate the environment:
+```sh
+conda create -n tof_simulation -c conda-forge python=3.12 --file requirements.txt
+conda activate tof_simulation
+```
+The same file works with pip (`pip install -r requirements.txt`) in any Python 3.12 environment.
+Run the tests with `python -m pytest` from the repository root.
+
 # Setup on lxplus
 This program requires newer version of polars, which isn't available on lxplus as of 01/10/2025.
 This means that the package must be installed locally and then used by the batch system.
