@@ -8,6 +8,11 @@ conda activate tof_simulation
 The same file works with pip (`pip install -r requirements.txt`) in any Python 3.12 environment.
 Run the tests with `python -m pytest` from the repository root.
 
+# Model conventions
+- **Trapping of fragments** (`modules/FragmentsDataLoader.py`): fragments (fully stripped, charge Z) are emitted isotropically at radius `r0` inside a trap with wall potential `V` [kV], electrode radius `R` [m] and field `B` [T]. A fragment with energy E at angle θ to the field is trapped when E cos²θ ≤ ZV (axial) and r0 + 2 r_c ≤ R (radial, r_c = p sinθ/(ZB)). For isotropic emission the trappable fraction is cos θ1 − cos θ2. The yields use the first `max_events` (default 1,000,000) annihilation events. The data folder can be changed with the `FRAGMENTS_DATA_PATH` environment variable.
+- **Time of flight** (`calculate_tof.py`): between points of the potential the force is assumed constant (exact time 2Δz/(v_a+v_b)). After the end of the potential the particle drifts with its final velocity to the MCP. Particles which cannot leave the trap are reported as trapped and are not counted.
+- **Signal**: fraction of the simulated particles per time bin, averaged over all iterations (empty bins count as zero). The time of a bin is its centre.
+
 # Setup on lxplus
 This program requires newer version of polars, which isn't available on lxplus as of 01/10/2025.
 This means that the package must be installed locally and then used by the batch system.
