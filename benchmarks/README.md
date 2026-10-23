@@ -14,7 +14,10 @@ run continues where it stopped. Plots and tables are written to `benchmarks/outp
 - **Antiprotons:**
   - Signals are inverted and the baseline is subtracted. Time zero is the launch, taken as the half-height crossing of the pickup of the pulse on the right wall. Runs without a pulse or without a peak are skipped; 18 floor voltages remain.
   - Each floor voltage is compared with simulations through the median arrival time (t50), the width (t84 − t16), and the chi2 of the normalised peak shape after aligning t50.
-  - Timing residuals are fitted with `dt50 = offset + scale * t50_sim`. The scale gives an effective flight distance of `1.05 m * (1 + scale)`.
+  - Timing residuals are fitted with `dt50 = offset + scale * t50_sim`. The scale gives an effective flight distance of `1.05 m * (1 + scale)` (the real distance of the temporary set-up is only known to be 1.0–1.2 m).
+  - The fit is done twice: once with a free offset, and once with offset = 0, i.e. the launch at the pulse pickup (columns `distance_offset0_m` and `rms_offset0_ns`).
+  - Because the pickup measures the launch time, a model that needs a large offset to match the timing is inconsistent, whatever distance it prefers.
+  - `pbar_configurations.csv` lists all configurations; `pbar_best.csv` has the configuration with the best shape for each model.
 - **Ar40:**
   - The three runs are averaged; t = trigger + 10 us. The spectrum is fitted with non-negative amplitudes of the simulated species:
     - pbar–Ar40 fragments (Geant4 yields, 12 kV catching potential), with fixed relative yields and one amplitude;

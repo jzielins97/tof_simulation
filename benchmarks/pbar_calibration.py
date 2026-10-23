@@ -8,7 +8,9 @@ which marks the launch) and compared with simulations of:
  - the tracking engine with a thermal cloud (grid of temperatures),
  - the tracking engine with a plasma in thermal equilibrium (grid of number of charges and temperatures).
 Metrics: median arrival time (t50) residuals, widths (t84 - t16) and reduced chi2 of the normalised peak shape
-after aligning t50 (shape only). Results are written to benchmarks/output/pbar_*.
+after aligning t50 (shape only). The timing residuals are fitted with an effective flight distance, once with a free
+time offset and once with the launch at the pickup of the pulse (zero offset).
+Results are written to benchmarks/output/pbar_*.
 
 usage: python benchmarks/pbar_calibration.py [--workers 12] [--quick]
 '''
@@ -34,6 +36,7 @@ WALL_V = 150.0
 BIN = 10e-9 # s
 T_END = 60e-6 # s
 SEARCH_FROM = 3e-6 # s, the pickup of the pulse is earlier
+NOMINAL_DISTANCE_M = 1.05 # m, distance to the MCP used in the simulations (default of calculate_tof)
 EDGES = np.arange(0, T_END + BIN / 2, BIN)
 CENTRES = EDGES[:-1] + BIN / 2
 
@@ -150,31 +153,39 @@ def evaluate(data:pl.DataFrame, results:list) -> pl.DataFrame:
 
 def timing_fit(rows:pl.DataFrame) -> dict:
     '''
-    Fit dt50 = a + b t50_sim: a is a common time offset, b a relative error of the flight distance.
+    Fit of the timing residuals, dt50 = a + b t50_sim, where b is a relative error of the flight distance
+    (effective distance = NOMINAL_DISTANCE_M (1 + b)) and a a common time offset:
+     - with free offset a,
+     - with a = 0, i.e. the launch at the pickup of the pulse (the pickup measures the launch time).
     '''
     t_sim = rows["t50_sim"].to_numpy(); dt = rows["dt50"].to_numpy()
     b, a = np.polyfit(t_sim, dt, 1)
     residual = dt - (a + b * t_sim)
-    return {"offset_ns": a * 1e9, "scale": b, "distance_m": 1.05 * (1 + b), "rms_after_fit_ns": float(np.std(residual) * 1e9),
+    b0 = np.sum(dt * t_sim) / np.sum(t_sim**2)
+    residual0 = dt - b0 * t_sim
+    return {"offset_ns": a * 1e9, "scale": b, "distance_m": NOMINAL_DISTANCE_M * (1 + b),
+            "rms_after_fit_ns": float(np.sqrt(np.mean(residual**2)) * 1e9),
+            "distance_offset0_m": NOMINAL_DISTANCE_M * (1 + b0), "rms_offset0_ns": float(np.sqrt(np.mean(residual0**2)) * 1e9),
             "mean_dt50_ns": float(dt.mean() * 1e9), "rms_dt50_ns": float(np.sqrt(np.mean(dt**2)) * 1e9)}
 
 
 def summarise(metrics:pl.DataFrame) -> tuple[pl.DataFrame,pl.DataFrame]:
+    '''
+    Metrics and timing fits of every configuration and the configuration with the best shape for each model.
+    '''
     good = metrics.filter(pl.col("error").is_null())
-    per_config = (good.group_by("model", "label")
-                  .agg(pl.col("chi2_shape").median().alias("median_chi2_shape"),
-                       pl.col("chi2_raw").median().alias("median_chi2_raw"),
-                       (pl.col("dt50").pow(2).mean().sqrt() * 1e9).alias("rms_dt50_ns"),
-                       ((pl.col("width_sim") / pl.col("width_data")).median()).alias("median_width_ratio"),
-                       pl.col("runtime_s").mean().alias("runtime_s"),
-                       pl.len().alias("floors"))
-                  .sort("model", "median_chi2_shape"))
-    best = per_config.group_by("model").agg(pl.all().sort_by("median_chi2_shape").first())
-    timing = []
-    for row in best.iter_rows(named=True):
-        fit = timing_fit(good.filter(pl.col("model") == row["model"], pl.col("label") == row["label"]))
-        timing.append({**row, **fit})
-    return per_config, pl.DataFrame(timing).sort("median_chi2_shape")
+    rows = []
+    for (model, label), group in good.group_by("model", "label"):
+        rows.append({"model": model, "label": label,
+                     "median_chi2_shape": group["chi2_shape"].median(),
+                     "median_chi2_raw": group["chi2_raw"].median(),
+                     "median_width_ratio": (group["width_sim"] / group["width_data"]).median(),
+                     **timing_fit(group),
+                     "runtime_s": group["runtime_s"].mean(),
+                     "floors": len(group)})
+    per_config = pl.DataFrame(rows).sort("model", "median_chi2_shape")
+    best = per_config.group_by("model").agg(pl.all().sort_by("median_chi2_shape").first()).sort("median_chi2_shape")
+    return per_config, best
 
 
 def plot(data:pl.DataFrame, metrics:pl.DataFrame, best:pl.DataFrame, results:list) -> None:
