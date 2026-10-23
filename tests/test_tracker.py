@@ -103,6 +103,50 @@ def test_magnetic_mirror_drift():
     assert np.isnan(_drift_times(np.array([0.1]), np.array([1e3]), np.array([mu_over_m]), rising, 1.0)[0])
 
 
+def test_field_map_is_shifted_to_the_trap_centre(tmp_path):
+    path = tmp_path / "field.csv"
+    path.write_text("z_stack_mm,Bz_T\n0,6.0\n1000,5.0\n2000,4.0\n3000,3.0\n")
+    B = MagneticField.from_field_map(str(path), center_position_mm=1000.0)
+    assert B.B(0.0) == pytest.approx(5.0)
+    assert B.B(0.5) == pytest.approx(4.5)
+    assert B.dB_dz(0.5) == pytest.approx(-1.0)
+
+
+def test_aegis_field_map():
+    center = ct._trap_center_position(FLOOR)
+    B = MagneticField.from_field_map("aegis", center)
+    # 5 T magnet at the trap, 1 T magnet at the MCP, field pointing towards ELENA (-z)
+    assert B.B(0.0) == pytest.approx(-5.0, abs=0.02)
+    assert B.B(1.05) == pytest.approx(-1.0, abs=0.03)
+    assert np.all(B.B_profile < 0)
+    assert B.magnitude(0.5) == pytest.approx(-B.B(0.5))
+    assert B.dmagnitude_dz(0.4) < 0 # the magnitude drops from the 5 T to the 1 T magnet
+
+
+def test_field_must_not_change_sign():
+    with pytest.raises(ValueError):
+        MagneticField(5.0, z_profile=np.array([0.0, 1.0]), B_profile=np.array([5.0, -1.0]))
+
+
+def test_direction_of_the_field_does_not_change_the_flight(trap_fields):
+    _, phi_prepare, phi_launch, well = trap_fields
+    rng = np.random.default_rng(8)
+    z, r, vz, v_perp = sample_cloud(phi_prepare, well, SPECIES, 20, 30000.0, 1e-3, rng)
+    particles = Particles(z, r, vz, v_perp, np.zeros(20, dtype=int), np.zeros(20))
+    q_over_m = np.full(20, SPECIES.q_over_m)
+    profile = np.array([-0.5, 0.2, 0.5, 1.2])
+    forward = MagneticField(5.0, z_profile=profile, B_profile=np.array([5.0, 5.0, 1.0, 1.0]))
+    reversed_field = MagneticField(-5.0, z_profile=profile, B_profile=np.array([-5.0, -5.0, -1.0, -1.0]))
+    gc_forward = GuidingCenterTracker(phi_prepare, phi_launch, 0.015, 1.05, forward, dt=1e-10).track(particles, q_over_m)
+    gc_reversed = GuidingCenterTracker(phi_prepare, phi_launch, 0.015, 1.05, reversed_field, dt=1e-10).track(particles, q_over_m)
+    np.testing.assert_array_equal(gc_forward.t, gc_reversed.t)
+    # full motion in the reversed field (opposite gyration) agrees with the guiding centre
+    boris = BorisTracker(phi_prepare, phi_launch, 0.015, 1.05, MagneticField(-5.0), dt=5e-11).track(particles, q_over_m, rng)
+    gc_uniform = GuidingCenterTracker(phi_prepare, phi_launch, 0.015, 1.05, MagneticField(-5.0), dt=1e-10).track(particles, q_over_m)
+    assert np.all(boris.status == ARRIVED)
+    assert np.abs(boris.t - gc_uniform.t).max() < 1e-9
+
+
 def test_dynamic_space_charge_spreads_the_bunch(trap_fields):
     solver, phi_prepare, phi_launch, well = trap_fields
     pb = PoissonBoltzmannSolver(solver, phi_prepare, well, [SPECIES], n_charges=3e6, temperature_K=300, B=5.0)

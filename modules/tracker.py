@@ -14,11 +14,15 @@ starting at t = 0. Space charge of the particles can be included by solving the 
 '''
 from dataclasses import dataclass
 import csv
+import os
 
 import numpy as np
 
 from field_solver import FieldGrid, AxisymmetricSolver
 from plasma import Particles
+
+# on-axis field of the AEgIS 5 T / 1 T magnets in TTrap coordinates (see tools/extract_axis_field.py)
+AEGIS_FIELD_MAP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "field_maps", "aegis_axis_field.csv")
 
 # status of the particles after tracking
 ARRIVED = 0
@@ -30,12 +34,19 @@ REFLECTED = 3 # reflected by the magnetic mirror on the way to the detector
 @dataclass
 class MagneticField:
     '''
-    Axial magnetic field Bz(z) on the axis (uniform when no profile is given).
-    Off axis the paraxial approximation gives B_r = -(r/2) dBz/dz.
+    Axial magnetic field Bz(z) on the axis (uniform when no profile is given), positive when it points towards
+    the detector (+z). Off axis the paraxial approximation gives B_r = -(r/2) dBz/dz.
+    The guiding centre motion depends only on the magnitude |B| (magnetic moment, mirror force, field lines),
+    the sign sets the direction of the cyclotron motion (full tracking with the Boris pusher).
     '''
     B0:float # T, field used when there is no profile
     z_profile:np.ndarray = None # m, relative to the centre of the trap
     B_profile:np.ndarray = None # T
+
+    def __post_init__(self):
+        values = np.atleast_1d(self.B0 if self.B_profile is None else self.B_profile)
+        if not (np.all(values > 0) or np.all(values < 0)):
+            raise ValueError("The axial magnetic field must not vanish or change sign (the guiding centre follows the field lines)")
 
     @classmethod
     def from_csv(cls, path:str) -> "MagneticField":
@@ -45,6 +56,21 @@ class MagneticField:
         with open(path, newline='') as f:
             rows = list(csv.DictReader(f))
         z = np.array([float(row["z_m"]) for row in rows])
+        B = np.array([float(row["Bz_T"]) for row in rows])
+        order = np.argsort(z)
+        return cls(B0=float(np.interp(0.0, z[order], B[order])), z_profile=z[order], B_profile=B[order])
+
+    @classmethod
+    def from_field_map(cls, path:str, center_position_mm:float) -> "MagneticField":
+        '''
+        Field on the axis from a csv file with columns z_stack_mm (position along the electrode stack in TTrap coordinates,
+        z = 0 at the start of C0) and Bz_T; center_position_mm is the centre of the trap in the same coordinates.
+        "aegis" selects the map of the AEgIS 5 T / 1 T magnets distributed with the code (tools/extract_axis_field.py).
+        '''
+        path = AEGIS_FIELD_MAP if path == "aegis" else path
+        with open(path, newline='') as f:
+            rows = list(csv.DictReader(f))
+        z = (np.array([float(row["z_stack_mm"]) for row in rows]) - center_position_mm) / 1000
         B = np.array([float(row["Bz_T"]) for row in rows])
         order = np.argsort(z)
         return cls(B0=float(np.interp(0.0, z[order], B[order])), z_profile=z[order], B_profile=B[order])
@@ -62,6 +88,12 @@ class MagneticField:
         if self.uniform:
             return np.zeros_like(np.asarray(z, dtype=float))
         return np.interp(z, self.z_profile, np.gradient(self.B_profile, self.z_profile))
+
+    def magnitude(self, z:np.ndarray) -> np.ndarray:
+        return np.abs(self.B(z))
+
+    def dmagnitude_dz(self, z:np.ndarray) -> np.ndarray:
+        return np.sign(self.B0) * self.dB_dz(z)
 
 
 @dataclass
@@ -98,7 +130,7 @@ def _drift_times(z_start:np.ndarray, v_par:np.ndarray, mu_over_m:np.ndarray, B:M
     for begin in range(0, len(z_start), chunk):
         end = begin + chunk
         z = z_start[begin:end, None] + (z_detector - z_start[begin:end, None]) * s[None, :]
-        v2 = v_par[begin:end, None]**2 - 2 * mu_over_m[begin:end, None] * (B.B(z) - B.B(z_start[begin:end, None]))
+        v2 = v_par[begin:end, None]**2 - 2 * mu_over_m[begin:end, None] * (B.magnitude(z) - B.magnitude(z_start[begin:end, None]))
         reflected = np.any(v2 <= 0, axis=1)
         inverse = 1 / np.sqrt(np.clip(v2, 1e-300, None))
         times[begin:end] = np.trapezoid(inverse, z, axis=1)
@@ -179,17 +211,17 @@ class GuidingCenterTracker:
         status = np.full(n, TRAPPED)
         z = particles.z.astype(float).copy()
         vz = particles.vz.astype(float).copy()
-        B_start = self.B.B(z)
+        B_start = self.B.magnitude(z)
         mu_over_m = particles.v_perp**2 / (2 * B_start)
         flux = particles.r**2 * B_start # r^2 B is conserved along the field line
         qm = np.asarray(q_over_m, dtype=float)
         uniform = self.B.uniform
 
         def radius(flux_now, z_now):
-            return np.sqrt(flux_now / self.B.B(z_now))
+            return np.sqrt(flux_now / self.B.magnitude(z_now))
 
         def hits_electrode(flux_now, mu_now, qm_now, z_now):
-            B_now = self.B.B(z_now)
+            B_now = self.B.magnitude(z_now)
             cyclotron_radius = np.sqrt(2 * mu_now * B_now) / (qm_now * B_now)
             return (radius(flux_now, z_now) + cyclotron_radius >= self.electrode_radius) & (z_now < self.z_exit)
 
@@ -204,7 +236,7 @@ class GuidingCenterTracker:
         def acceleration(z_now, t_now):
             if uniform:
                 return qm_a * self.field.Ez(r_a, z_now, t_now, (base_a, weight_a))
-            return qm_a * self.field.Ez(radius(flux_a, z_now), z_now, t_now) - mu_a * self.B.dB_dz(z_now)
+            return qm_a * self.field.Ez(radius(flux_a, z_now), z_now, t_now) - mu_a * self.B.dmagnitude_dz(z_now)
 
         if self.space_charge_solver is not None and len(active):
             self._update_space_charge(r_a if uniform else radius(flux_a, z_a), z_a, charge_a)
@@ -313,7 +345,7 @@ class BorisTracker:
             exited = xa[2] >= self.z_exit
             if exited.any():
                 ei = index[exited]
-                B_exit = self.B.B(xa[2][exited])
+                B_exit = self.B.magnitude(xa[2][exited])
                 v_perp2 = va[0][exited]**2 + va[1][exited]**2
                 t_cross = t - self.dt * (xa[2][exited] - self.z_exit) / np.maximum(xa[2][exited] - z_previous[exited], 1e-30)
                 drift = _drift_times(np.full(len(ei), self.z_exit), va[2][exited], v_perp2 / (2 * B_exit), self.B, self.z_detector)

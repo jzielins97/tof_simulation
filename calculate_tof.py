@@ -97,7 +97,9 @@ def _build_parser()->argparse.ArgumentParser:
     parser.add_argument('--space_charge',type=str,default=None,choices=['off','initial','dynamic'],
                         help="(tracking) off - no space charge; initial - space charge only in the initial plasma equilibrium; dynamic - space charge recalculated during the extraction (default: dynamic for plasma, off otherwise)")
     parser.add_argument('--B_T',type=float,default=5.0,
-                        help="(tracking) Uniform magnetic field")
+                        help="(tracking) Uniform magnetic field (positive towards the detector; only the magnitude changes the guiding centre motion)")
+    parser.add_argument('--B_map',type=str,default=None,
+                        help="(tracking) Magnetic field along the axis: 'aegis' for the map of the AEgIS 5 T / 1 T magnets distributed with the code (pointing from the 5 T magnet towards ELENA, Bz < 0), or a csv file with columns z_stack_mm (TTrap coordinates, 0 at the start of C0) and Bz_T; replaces --B_T and --B_profile")
     parser.add_argument('--B_profile',type=str,default=None,
                         help="(tracking) csv file with the on-axis magnetic field (columns z_m relative to the centre of the trap and Bz_T), replaces --B_T")
     parser.add_argument('--pulse_rise_time_s',type=float,default=0.0,
@@ -988,6 +990,7 @@ def calculate_tof(mq:Union[float,list[float]],
                   space_charge:Optional[str]=None,
                   B_T:float=5.0, # T
                   B_profile:Optional[str]=None,
+                  B_map:Optional[str]=None,
                   pulse_rise_time_s:float=0.0, # s
                   dt_s:float=1e-9, # s
                   t_max_s:Optional[float]=None, # s
@@ -1307,6 +1310,7 @@ def _calculate_tof_tracking(mq:list[float],
                             space_charge:Optional[str],
                             B_T:float,
                             B_profile:Optional[str],
+                            B_map:Optional[str],
                             pulse_rise_time_s:float,
                             dt_s:float,
                             t_max_s:Optional[float],
@@ -1331,7 +1335,8 @@ def _calculate_tof_tracking(mq:list[float],
     species = [Species(label=str(label),mq=float(mq_i),charge=float(charge),weight=float(weight))
                for mq_i,label,weight,charge in zip(mq,labels,weights,charges)]
     space_charge = space_charge if space_charge is not None else ('dynamic' if model == 'plasma' else 'off')
-    file_suffix = f"tracking_{model}_floor={trap_floor_V}V_wall={trap_wall_V}V_T={temperature_K:g}K_spacecharge={space_charge}_dt={tof_dt*1e9:.0f}ns_N={N_particles}x{iterations}"
+    field = "_Bmap" if B_map else ("_Bprofile" if B_profile else ("" if B_T == 5.0 else f"_B={B_T:g}T"))
+    file_suffix = f"tracking_{model}_floor={trap_floor_V}V_wall={trap_wall_V}V_T={temperature_K:g}K_spacecharge={space_charge}{field}_dt={tof_dt*1e9:.0f}ns_N={N_particles}x{iterations}"
 
     center_position = _trap_center_position(trap_floor)
     aegis_trap = TTrap(position=-center_position)
@@ -1357,6 +1362,7 @@ def _calculate_tof_tracking(mq:list[float],
                                space_charge=space_charge,
                                B_T=B_T,
                                B_profile=B_profile,
+                               B_map=B_map,
                                pulse_rise_time_s=pulse_rise_time_s,
                                dt_s=dt_s,
                                t_max_s=tof_range[1] if t_max_s is None else t_max_s,
@@ -1479,6 +1485,7 @@ def _common_kwargs(args:argparse.Namespace)->dict:
                 space_charge=args.space_charge,
                 B_T=args.B_T,
                 B_profile=args.B_profile,
+                B_map=args.B_map,
                 pulse_rise_time_s=args.pulse_rise_time_s,
                 dt_s=args.dt_s,
                 t_max_s=args.t_max_s,

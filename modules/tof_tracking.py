@@ -65,18 +65,24 @@ def setup_tracking(species:Sequence[Species],
                    B_profile:Optional[str] = None,
                    electrode_radius_mm:float = 15.0,
                    grid_mm:float = 0.25,
-                   verbose_level:int = 0) -> TrackingSetup:
+                   verbose_level:int = 0,
+                   B_map:Optional[str] = None) -> TrackingSetup:
     geometry, solver, phi_prepare, phi_launch = prepare_fields(voltages_prepare, voltages_launch, center_position_mm,
                                                                electrode_radius_mm, grid_mm)
     well = find_well(phi_prepare)
-    B = MagneticField.from_csv(B_profile) if B_profile else MagneticField(B_T)
+    if B_map:
+        B = MagneticField.from_field_map(B_map, center_position_mm)
+    elif B_profile:
+        B = MagneticField.from_csv(B_profile)
+    else:
+        B = MagneticField(B_T)
     total_charge_weight = sum(s.weight * s.charge for s in species)
     n_ions = np.array([n_charges * s.weight / total_charge_weight for s in species])
     equilibrium = None
     if model == "plasma":
         # without space charge the equilibrium is calculated for a negligible number of charges
         pb_charges = n_charges if space_charge != "off" else 1.0
-        pb = PoissonBoltzmannSolver(solver, phi_prepare, well, species, pb_charges, temperature_K, B.B(well.z_bottom))
+        pb = PoissonBoltzmannSolver(solver, phi_prepare, well, species, pb_charges, temperature_K, float(B.magnitude(well.z_bottom)))
         equilibrium = pb.solve_for_radius(plasma_radius_mm / 1000)
         pb.check_confined(equilibrium)
         if verbose_level > 0:
@@ -132,6 +138,7 @@ def simulate_tracking(species:Sequence[Species],
                       space_charge:Optional[str] = None,
                       B_T:float = 5.0,
                       B_profile:Optional[str] = None,
+                      B_map:Optional[str] = None,
                       pulse_rise_time_s:float = 0.0,
                       dt_s:float = 1e-9,
                       t_max_s:float = 1e-4,
@@ -157,7 +164,11 @@ def simulate_tracking(species:Sequence[Species],
     if tracker not in TRACKERS:
         raise ValueError(f"Unknown tracker {tracker}, available: {TRACKERS}")
     setup = setup_tracking(species, voltages_prepare, voltages_launch, center_position_mm, model, temperature_K,
-                           plasma_radius_mm, n_charges, space_charge, B_T, B_profile, electrode_radius_mm, grid_mm, verbose_level)
+                           plasma_radius_mm, n_charges, space_charge, B_T, B_profile, electrode_radius_mm, grid_mm, verbose_level,
+                           B_map=B_map)
+    if verbose_level > 0 and not setup.B.uniform:
+        print(f"Magnetic field: {float(setup.B.B(0.0)):.4f} T in the trap, {float(setup.B.B(distance_to_mcp_m)):.4f} T at the detector "
+              f"(positive towards the detector)")
     q_over_m_species = np.array([s.q_over_m for s in species])
     if tracker == "gc":
         engine = GuidingCenterTracker(setup.phi_prepare, setup.phi_launch, setup.geometry.radius, distance_to_mcp_m, setup.B,
@@ -168,7 +179,7 @@ def simulate_tracking(species:Sequence[Species],
         if space_charge == "dynamic":
             raise ValueError("Dynamic space charge is available only with the guiding centre tracker")
         # the time step must resolve the fastest cyclotron motion
-        cyclotron = q_over_m_species.max() * max(setup.B.B0, setup.B.B_profile.max() if not setup.B.uniform else 0)
+        cyclotron = q_over_m_species.max() * max(abs(setup.B.B0), np.abs(setup.B.B_profile).max() if not setup.B.uniform else 0)
         engine = BorisTracker(setup.phi_prepare, setup.phi_launch, setup.geometry.radius, distance_to_mcp_m, setup.B,
                               dt=min(dt_s, 0.1 / cyclotron), t_max=t_max_s, pulse_rise_time=pulse_rise_time_s)
     seeds = np.random.SeedSequence(seed).spawn(iterations)

@@ -209,9 +209,29 @@ $$\frac{dz}{dt}=v_\parallel,\qquad m\frac{dv_\parallel}{dt}=qE_z(r_{gc},z,t)-\mu
 **Flight to the MCP:**
 - Once an ion passes the end of the electric field (where $|\phi|$ drops below $10^{-6}$ of its maximum), it drifts to the MCP at `--distance_to_mcp_m`.
 - In a uniform field the drift time is distance divided by $v_\parallel$.
-- With a field profile (`--B_profile`, a csv file with columns `z_m,Bz_T`), energy and magnetic moment are conserved:
+- In a non-uniform field (`--B_map` or `--B_profile`, see below), energy and magnetic moment are conserved:
   $$v_\parallel^2(z)=v_{\parallel,\text{exit}}^2-\frac{2\mu}{m}\left[B(z)-B(z_\text{exit})\right],\qquad t=\int\frac{dz}{v_\parallel(z)} .$$
   When the field drops, perpendicular energy turns into parallel energy. When it rises enough, the ion is reflected (magnetic mirror).
+
+**Magnetic field of the AEgIS magnets** (`--B_map aegis`):
+- **The map:** the field of the 5 T and 1 T magnets comes from the 3D map `3m_magnetic_field_AEgIS.parquet`: x, y within ±430 mm and z within ±3 m, on a 2 mm × 2 mm × 5 mm grid. `tools/extract_axis_field.py` extracts the field on the axis into `modules/field_maps/aegis_axis_field.csv`.
+- **Field on the path:** with the alignment below, the trap (P11) sits at 5.00 T. The field drops to about 1.3 T at the end of the T trap and to 1.02 T at the MCP (1.05 m).
+- **Direction:** the field points from the 5 T magnet towards ELENA, i.e. along $-z$, against the flight of the ions to the MCP. The map has the opposite direction, so its sign is reversed: the profile has $B_z\approx-5$ T in the trap.
+  - The sign convention of the simulation is that $B_z>0$ points towards the detector.
+  - The guiding-centre motion depends only on $|B|$ (magnetic moment, mirror force, field lines), so the direction doesn't change the TOF. Reversing the field gives identical arrival times.
+  - The direction sets the sense of the cyclotron and $E\times B$ rotation, which the Boris pusher follows. It agrees with the guiding centre within 1 ns for either direction.
+  - The field must keep one sign along the path, because the guiding centre follows the field lines.
+- **Paraxial approximation:** the tracker uses $B_z$ on the axis with the paraxial radial field $B_r=-\tfrac r2\,\partial B_z/\partial z$. At the electrode radius the map differs from this by at most 0.014 T in $B_z$ and 0.019 T in $B_r$ (out of at most 0.20 T in the 5 T → 1 T transition). Closer to the axis, where the ions are, the difference is much smaller.
+- **Alignment:** the map's $z$ axis is aligned with the electrode stack by `--stack_offset_mm` of the extraction script. The default puts the start of C0 at $z_\text{map}=-1095$ mm. This places C0 at the start of the 5 T plateau and the end of the T trap at the 5 T → 1 T transition, as in `phd_plots/potentials/plot_potential.py`.
+- **Size of the effect:** between the trap and the MCP the field drops from 5 T to 1 T, so 80% of the perpendicular energy becomes parallel energy. Ions arrive earlier compared with a uniform field:
+  - −19 ns for He²⁺ at 3·10⁴ K and −17 ns for antiprotons at 10⁴ K;
+  - −175 ns for Ar⁺ at 3·10⁴ K;
+  - negligible for ions at 300 K.
+
+  The field lines also widen by $\sqrt{5}$, which spreads the bunch radially.
+- **Other profiles:**
+  - `--B_map <file>` reads any csv with columns `z_stack_mm` (TTrap coordinates, 0 at the start of C0) and `Bz_T`.
+  - `--B_profile <file>` reads a csv with `z_m` relative to the middle of the floor.
 
 **Fates of the ions:**
 - **arrived;**
@@ -235,7 +255,7 @@ $$\text{signal}_k=\frac{\langle c_{mk}\rangle_m}{N},\qquad \text{signal\_err}_k=
 ## 1.7 Assumptions and limitations
 
 - **Electrodes:** cylindrical, all with the same radius (15 mm), with a linear potential across the gaps. Positions come from `TTrap`.
-- **Magnetic field:** uniform (`--B_T`) unless a profile is given.
+- **Magnetic field:** uniform (`--B_T`) unless a map or profile is given. With `--B_map aegis` only the field on the axis is used, together with the paraxial approximation; the field is assumed axisymmetric.
 - **Region in front of the MCP:** assumed field-free. The MCP bias and grids aren't modelled; `--distance_to_mcp_m` is an effective distance.
 - **Charge and collisions:** charge states don't change, and there are no collisions, charge exchange or recombination during the extraction.
 - **Space charge:**
@@ -316,6 +336,11 @@ A plasma of $10^6$ charges with a radius of 1 mm at 1000 K, with dynamic space c
 python calculate_tof.py --trap_floor_V 180 --trap_wall_V 190 --engine tracking --model plasma --n_charges 1e6 --plasma_radius_mm 1 --temperature_K 1000 --plot_mask 0x30 tof --mq 2.0013 --charge 2
 ```
 
+A hot cloud in the measured field of the AEgIS magnets (5 T in the trap, 1 T at the MCP):
+```sh
+python calculate_tof.py --trap_floor_V 180 --trap_wall_V 190 --engine tracking --model cloud --temperature_K 30000 --B_map aegis tof --mq 2.0013 --charge 2 --label He2+
+```
+
 Antiprotons (calibration configuration, magnitudes of the voltages):
 ```sh
 python calculate_tof.py --trap_floor_V 110 --trap_wall_V 150 --engine tracking --model cloud --temperature_K 10000 tof_pbar
@@ -375,7 +400,8 @@ python calculate_tof.py --trap_floor_V 180 --trap_wall_V 190 --engine tracking -
 | `--n_charges` | 1e5 | total number of elementary charges, shared by the species according to their weights |
 | `--space_charge` | dynamic for plasma, off otherwise | `off`, `initial`, `dynamic` (1.5) |
 | `--poisson_every` | 5 | time steps between updates of the space-charge field |
-| `--B_T` | 5.0 | uniform magnetic field [T] |
+| `--B_T` | 5.0 | uniform magnetic field [T], positive towards the detector (only the magnitude changes the guiding-centre motion) |
+| `--B_map` | – | magnetic field on the axis: `aegis` (AEgIS 5 T / 1 T magnets, pointing towards ELENA, $B_z<0$) or a csv with `z_stack_mm` (TTrap coordinates) and `Bz_T`; replaces `--B_T` and `--B_profile` |
 | `--B_profile` | – | csv with `z_m` (relative to the middle of the floor) and `Bz_T`; replaces `--B_T` |
 | `--pulse_rise_time_s` | 0 | linear rise time of the pulse |
 | `--dt_s` | 1e-9 | time step of the tracking |
@@ -501,7 +527,20 @@ The tracking engine needs much less memory than the legacy engine. The legacy en
 
 **Bins:** use `--tof_dt` of 1–10 ns. Compare with data by rebinning to the resolution of the data.
 
-## 2.8 Running on HTCondor (lxplus)
+## 2.8 Magnetic field maps
+
+`--B_map aegis` uses the on-axis field in `modules/field_maps/aegis_axis_field.csv`. To recreate it from the 3D map (only the points near the axis are read, so the 4.6 GB file is never loaded completely), or to use a different alignment of the map with the electrodes:
+
+```sh
+python tools/extract_axis_field.py "C:/Users/jakub/Documents/AEgIS Data/3m_magnetic_field_AEgIS.parquet" --stack_offset_mm 1095
+```
+
+- **Alignment:** `--stack_offset_mm` is $z_\text{stack}-z_\text{map}$. With the default of 1095 mm (confirmed for the AEgIS set-up), the start of C0 is at $z_\text{map}=-1095$ mm.
+- **Direction:** the field is reversed by default, so that it points from the 5 T magnet towards ELENA ($B_z<0$). `--no-reverse_field` keeps the direction of the map.
+- **Checks:** the script prints how well the paraxial approximation describes the map at the electrode radius. It drops points at the edges of the map where the field is zero or has the opposite sign.
+- **Output:** `--output` writes the profile to another file, which can be passed as `--B_map <file>`.
+
+## 2.9 Running on HTCondor (lxplus)
 
 `condor_scripts/SimulateTof.sh` passes its arguments to `calculate_tof.py`. The `.sub` files define the scans, e.g. over `spacecharge_min`.
 
@@ -509,7 +548,7 @@ The tracking engine needs much less memory than the legacy engine. The legacy en
 - **Dependencies:** no extra ones; NumPy and SciPy come from LCG.
 - **Plasma jobs:** a plasma with dynamic space charge takes minutes per iteration, so request enough job time.
 
-## 2.9 Tests and benchmarks
+## 2.10 Tests and benchmarks
 
 ```sh
 python -m pytest                                    # unit tests
