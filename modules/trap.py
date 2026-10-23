@@ -4,20 +4,22 @@ import os
 from electrode import TElectrode
 
 class TTrap():
-    electrodes:[TElectrode]=[] # list of all electrodes
-    electrode_mapping:{str:int}={} # mapping for quick access to electrode
+    electrodes:[TElectrode] # list of all electrodes
+    electrode_mapping:{str:int} # mapping for quick access to electrode
     position:float=0 # inisitla position of the trap
     length:float=0 # length of the trap
-    segments:int=2048 # total number of positions points 
+    segments:int=2048 # total number of positions points
     dx:float=0.5 # distance between position points [mm]
-    __TRAP_CONFIGS:{str:{str:[str]}}={} # configurations of the trap
-    __POTENTIAL_MATRIX:[[float]]=[[]] # matrix for calculating the final potential
-    __MEMORY:{str:[[float]]}={} # internal memory for trapping sequences
+    GROUNDED_ELECTRODES:[str]=['C1'] # electrodes which are always grounded ,'C16','C17'
+    __TRAP_CONFIGS:{str:{str:[str]}} # configurations of the trap
+    __POTENTIAL_MATRIX:[[float]] # matrix for calculating the final potential
+    __MEMORY:{str:[[float]]} # internal memory for trapping sequences
 
 
     def __init__(self,position:float=0.0):
         self.position = position
         self.electrodes:list(TElectrode) = []
+        self.__MEMORY = {}
 
         script_dir = os.path.dirname(__file__)
         trap_setup_path = os.path.join(script_dir, "trap_setup.json")
@@ -29,11 +31,6 @@ class TTrap():
             #         print(f"\t{key}:{item}")
         # print(self.__TRAP_CONFIGS)
         
-        potential_matrix_path = os.path.join(script_dir, "ElectrodesPotentialMap.txt")
-        GROUNDED_ELECTRODES = ['C1'] # ,'C16','C17'
-        with open(potential_matrix_path, 'r') as f:
-            self.__POTENTIAL_MATRIX = np.array([[float(value) for value in l.strip().split("\t")[1:2049]] if l.strip().split("\t")[0] not in  GROUNDED_ELECTRODES else [0]*2048 for l in f.readlines()])   
-
         self.electrodes.append(TElectrode("C0",position+0.0,13.5))
         self.electrodes.append(TElectrode("HV1",position+23.5,40.0))
         self.electrodes.append(TElectrode("C1",position+73.5,26.5))
@@ -74,6 +71,15 @@ class TTrap():
 
         self.length = self.electrodes[-1].GetElectrodeEnd() - self.electrodes[0].GetElectrodeStart()
 
+        # on-axis potential created by each electrode set to 1 V; rows are matched to electrodes by name
+        potential_matrix_path = os.path.join(script_dir, "ElectrodesPotentialMap.txt")
+        with open(potential_matrix_path, 'r') as f:
+            potential_map = {l.strip().split("\t")[0]:[float(value) for value in l.strip().split("\t")[1:self.segments+1]] for l in f.readlines() if l.strip()}
+        missing = [e.GetName() for e in self.electrodes if e.GetName() not in potential_map]
+        if missing:
+            raise KeyError(f"Electrodes {missing} are missing in {potential_matrix_path}")
+        self.__POTENTIAL_MATRIX = np.array([potential_map[e.GetName()] if e.GetName() not in self.GROUNDED_ELECTRODES else [0.0]*self.segments for e in self.electrodes])
+
         self.electrode_mapping = {}
         
         for i,e in enumerate(self.electrodes):
@@ -94,8 +100,8 @@ class TTrap():
     
     def SetEverythingToZero(self, electrodes:[str]=None)->None:
         if electrodes is None:
-            for i in range(1,len(self.electrodes)-1):
-                self.electrodes[i].SetPotential(0)
+            for electrode in self.electrodes:
+                electrode.SetPotential(0)
         else:
             for electrode in electrodes:
                 self.SetElectrodeV(electrode,0)
@@ -201,7 +207,7 @@ class TTrap():
         electrodes = ["ERROR"]
         try:
             electrodes = self.__TRAP_CONFIGS[trap_name][config_name]
-        except ValueError:
+        except KeyError:
             print("This trap does not seem to be defined! Please provide a valid trap name!")
         return electrodes
     
