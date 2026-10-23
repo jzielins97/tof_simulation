@@ -8,3 +8,6 @@ venv/**
 condor_scripts/error
 condor_scripts/output
 condor_scripts/log
+*.egg-info/
+modules/cache/
+.pytest_cache/

@@ -1,18 +1,7 @@
-from setuptools import setup, find_packages
+from setuptools import setup
 
-setup(name='FragmentsDataLoader',
-      version='0.1.0',
+setup(name='tof_simulation_modules',
+      version='0.2.0',
       author='Jakub Zielinski',
-      packages=["FragmentsDataLoader.py"])
-
-setup(name='electrode',
-      version='0.1.0',
-      author='Jakub Zielinski',
-      packages=["electrode.py"])
-
-setup(name='trap',
-      version='0.1.0',
-      author='Jakub Zielinski',
-      packages=["trap.py"])
-
-
+      py_modules=["constants","FragmentsDataLoader","electrode","trap"],
+      package_data={'':["trap_setup.json","ElectrodesPotentialMap.txt"]})
