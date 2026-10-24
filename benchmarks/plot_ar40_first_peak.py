@@ -5,7 +5,7 @@ The time calibration (effective flight distance and shift) comes from the positi
 the amplitudes of He2+ and of the fragments (relative yields from Geant4) are fitted to the first peak only.
 Requires the cached simulations of ar40_runs.py (run it first).
 
-usage: python benchmarks/plot_ar40_first_peak.py [--cloud "T=30000 K"] [--plasma "N=5e+06 T=1000 K"] [--cloud_particles 10000 --cloud_iterations 9] [--plasma_particles 10000 --plasma_iterations 3]
+usage: python benchmarks/plot_ar40_first_peak.py [--tag aegis --B_map aegis] [--cloud "T=30000 K"] [--plasma "N=5e+06 T=1000 K"] [--cloud_particles 10000 --cloud_iterations 9] [--plasma_particles 10000 --plasma_iterations 3]
 '''
 import os
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
@@ -57,9 +57,11 @@ def benchmark_parameters(model:str, label:str) -> dict:
     The plasma simulations are identified also by the abundances of the species used in the last run of ar40_runs.py.
     '''
     numbers = dict((key, float(value)) for key, value in re.findall(r"(N|T)=([0-9.e+]+)", label))
+    T_perp = re.search(r"T=[0-9.e+]+/([0-9.e+]+)", label)
+    T_perp = float(T_perp.group(1)) if T_perp else None
     plasma_weights = None
     if model == "tracking plasma":
-        with open(os.path.join(OUTPUT_DIR, "ar40_plasma_weights.json")) as f:
+        with open(os.path.join(OUTPUT_DIR, name("plasma_weights.json"))) as f:
             plasma_weights = json.load(f)
     best = None
     for path in glob.glob(os.path.join(OUTPUT_DIR, "cache", "ar40", "*.json")):
@@ -68,6 +70,8 @@ def benchmark_parameters(model:str, label:str) -> dict:
         if parameters.get("engine") != "tracking" or parameters.get("model") != model.split()[-1]:
             continue
         if parameters["temperature_K"] != numbers["T"] or ("N" in numbers and parameters["n_charges"] != numbers["N"]):
+            continue
+        if parameters.get("T_perp_K") != T_perp or parameters.get("B_map") != B_MAP:
             continue
         if plasma_weights is not None and not np.allclose(parameters["weights"], plasma_weights, rtol=1e-12, atol=0):
             continue
@@ -117,9 +121,22 @@ def fit_first_peak(measured:np.ndarray, noise:float, parts:dict[str,np.ndarray])
             "fractions": {name: fitted[name][window].sum() / max(total[window].sum(), 1e-30) for name in ["He2+", "fragments"]}}
 
 
+TAG = "" # tag of the outputs of ar40_runs.py
+B_MAP = None # magnetic field of the simulations (--B_map of ar40_runs.py)
+
+
+def name(title:str) -> str:
+    return f"ar40_{TAG}_{title}" if TAG else f"ar40_{title}"
+
+
 def main():
+    global TAG, B_MAP
     parser = argparse.ArgumentParser()
-    summary = pl.read_csv(os.path.join(OUTPUT_DIR, "ar40_summary.csv"))
+    parser.add_argument("--tag", default="", help="tag of the outputs of ar40_runs.py to use")
+    parser.add_argument("--B_map", default=None, help="magnetic field used in ar40_runs.py (e.g. aegis)")
+    known, _ = parser.parse_known_args()
+    TAG, B_MAP = known.tag, known.B_map
+    summary = pl.read_csv(os.path.join(OUTPUT_DIR, name("summary.csv")))
     best = {model: summary.filter(pl.col("model") == model).sort("chi2_dof")["label"][0] for model in ["tracking cloud", "tracking plasma"]}
     parser.add_argument("--cloud", default=best["tracking cloud"])
     parser.add_argument("--plasma", default=best["tracking plasma"])
@@ -151,11 +168,11 @@ def main():
         ax.plot(t_us, result["He2+"][window] * 1e3, color=COLORS["He2+"], lw=2, label="He$^{2+}$", zorder=3)
         ax.plot(t_us, result["fragments"][window] * 1e3, color=COLORS["fragments"], lw=2, label=r"$\bar{p}$-$^{40}$Ar fragments", zorder=3)
         # direct labels at the maxima of the components (text in ink, not in series colour)
-        for name, text in [("He2+", "He$^{2+}$"), ("fragments", "fragments")]:
-            values = result[name][window] * 1e3
+        for component, text in [("He2+", "He$^{2+}$"), ("fragments", "fragments")]:
+            values = result[component][window] * 1e3
             if values.max() > 0:
                 i = int(np.argmax(values))
-                ax.annotate(text, (t_us[i], values[i]), xytext=(24, -26 if name == "fragments" else 12), textcoords="offset points",
+                ax.annotate(text, (t_us[i], values[i]), xytext=(24, -26 if component == "fragments" else 12), textcoords="offset points",
                             color=INK, fontsize=9, arrowprops=dict(arrowstyle="-", color=INK_SECONDARY, lw=0.6),
                             bbox=dict(boxstyle="round,pad=0.15", facecolor=SURFACE, edgecolor="none", alpha=0.85))
         ax.axvspan(FIT_WINDOW[0] * 1e6, FIT_WINDOW[1] * 1e6, color="#f3f2ef", zorder=0, lw=0)
@@ -164,7 +181,7 @@ def main():
         ax.text(0.99, 0.96,
                 f"He$^{{2+}}$ {result['fractions']['He2+']*100:.0f}% / fragments {result['fractions']['fragments']*100:.0f}% of the peak\n"
                 f"$\\chi^2$/dof = {result['chi2_dof']:.2f} in the fit window {FIT_WINDOW[0]*1e6:.1f}-{FIT_WINDOW[1]*1e6:.1f} µs (shaded)\n"
-                f"calibration from the main peaks: L = {calibration['distance_m']:.4f} m, shift {calibration['shift_ns']:.0f} ns",
+                f"calibration (whole spectrum, anchored at the main peaks): L = {calibration['distance_m']:.4f} m, shift {calibration['shift_ns']:.0f} ns",
                 transform=ax.transAxes, ha="right", va="top", fontsize=9, color=INK_SECONDARY)
         ax.set_ylabel("MCP signal [mV]")
         # headroom above the data for the legend and the fit results
@@ -177,7 +194,7 @@ def main():
     fig.suptitle(f"First peak of the Ar40 spectrum (m/q ≈ 2), tracking engine, floor {FLOOR_V:.0f} V / wall {WALL_V:.0f} V",
                  x=0.01, ha="left", fontsize=12, color=INK)
     fig.tight_layout()
-    path = output_path("ar40_first_peak.png")
+    path = output_path(name("first_peak.png"))
     fig.savefig(path, dpi=200, facecolor=SURFACE)
     print(f"saved {path}")
 

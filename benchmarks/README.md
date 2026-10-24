@@ -6,6 +6,13 @@ python benchmarks/pbar_calibration.py --workers 8   # antiproton calibration run
 python benchmarks/ar40_runs.py --workers 8          # Ar40 runs 427300, 427304, 427316 (floor 180 V, wall 190 V)
 python benchmarks/verify_cache.py --tag pbar        # recompute 10% of cached simulations and compare
 ```
+Options of `ar40_runs.py`:
+- `--B_map aegis` tracks in the measured AEgIS field instead of a uniform 5 T.
+- `--cloud 30000 50000 30000/3000` sets the cloud temperatures, as T or T_par/T_perp [K].
+- `--plasma 1e6@3000` sets the plasma configurations (charges@T [K]); `--plasma` alone skips the plasma.
+- `--residual_gas` adds the molecular ions H2O+, N2+, O2+ and CO2+ to the fit.
+- `--tag aegis` names the outputs `ar40_aegis_*`; `plot_ar40_first_peak.py --tag aegis --B_map aegis` reads them.
+
 `--quick` uses fewer particles and parameters. The data files are read from `HCIanalysis` (change them with
 `TOF_CALIBRATION_DATA` and `TOF_HCI_DATA`). Every simulation is cached in `benchmarks/output/cache`, so an interrupted
 run continues where it stopped. Plots and tables are written to `benchmarks/output` (not tracked by git).
@@ -21,7 +28,7 @@ run continues where it stopped. Plots and tables are written to `benchmarks/outp
 - **Ar40:**
   - The three runs are averaged; t = trigger + 10 us. The spectrum is fitted with non-negative amplitudes of the simulated species:
     - pbar–Ar40 fragments (Geant4 yields, 12 kV catching potential), with fixed relative yields and one amplitude;
-    - H2+, He+, He2+ and Ar 1+ to 18+, each with a free amplitude.
+    - H2+, He+, He2+ and Ar 1+ to 18+ (with `--residual_gas` also H2O+, N2+, O2+, CO2+), each with a free amplitude.
   - The time calibration (launch delay after the trigger and effective flight distance) is fitted to the positions of the five main peaks (He2+, He+, Ar3+, Ar2+, Ar+), each produced by one gas ion. The spectrum is then fitted at that calibration.
   - A free scan of the calibration over 0.99–1.22 m is also reported (`*_free_scan` columns). Its minimum isn't always physical, because the many free amplitudes can compensate for a wrong time axis.
   - Simulated histograms (10 ns bins) are moved to the data bins by spreading each bin uniformly over its stretched width, which avoids aliasing spikes when the two grids don't line up.

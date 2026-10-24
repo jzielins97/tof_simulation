@@ -5,13 +5,14 @@ The measured MCP signals of the runs (default 427300, 427304, 427316) are backgr
 The model of the spectrum is a non-negative combination of simulated species:
  - fragments of antiproton annihilation on Ar40 (Geant4 yields of trapped fragments, fully stripped) with relative
    yields fixed by the simulation and one free amplitude,
- - ions of the residual gas (H2+, He+, He2+, Ar40 q=1..18) with free amplitudes.
+ - ions of the residual gas (H2+, He+, He2+, Ar40 q=1..18, with --residual_gas also H2O+, N2+, O2+, CO2+) with free amplitudes.
 The time calibration (launch delay with respect to the trigger and effective flight distance) is fitted to the positions
 of the main peaks (He2+, He+, Ar3+, Ar2+, Ar+); a free scan of the calibration is reported for comparison.
 Configurations: legacy 1D engine (space charge limits), tracking engine with a thermal cloud and with a plasma
 (the plasma uses the abundances found with the best cloud fit). Results are written to benchmarks/output/ar40_*.
 
-usage: python benchmarks/ar40_runs.py [--workers 8] [--quick] [--runs 427300 427304 427316]
+usage: python benchmarks/ar40_runs.py [--workers 8] [--quick] [--runs 427300 427304 427316] [--B_map aegis --tag aegis]
+       [--cloud 3000 30000 30000/3000] [--plasma 1e6@1000 5e6@3000] [--residual_gas]
 '''
 import os
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
@@ -41,11 +42,15 @@ EDGES = np.arange(0, 50e-6 + BIN / 2, BIN)
 CENTRES = EDGES[:-1] + BIN / 2
 SHIFTS = np.arange(-600e-9, 600e-9 + 1e-12, 10e-9) # s, scanned time shifts of the simulation
 SCALES = np.arange(0.94, 1.16 + 1e-9, 0.0025) # scanned time scale (effective flight distance / 1.05 m), covers 0.99-1.22 m
+LOCAL_SCALES = np.arange(-0.02, 0.02 + 1e-9, 0.001) # refinement of the calibration around the peak positions
+LOCAL_SHIFTS = np.arange(-150e-9, 150e-9 + 1e-12, 10e-9) # s
 FLOOR_V, WALL_V = 180.0, 190.0
 NOMINAL_DISTANCE_M = 1.05 # m, distance to the MCP used in the simulations (default of calculate_tof)
 # residual gas ions: label, m/q [u/e], charge
 GAS_IONS = ([("H2+", 2.01510, 1.0), ("He+", 4.002603, 1.0), ("He2+", 4.002603 / 2, 2.0)]
             + [(f"Ar{q}+", 39.962383 / q, float(q)) for q in range(1, 19)])
+# molecular ions of the residual gas (--residual_gas), between and after the Ar2+ and Ar+ peaks
+RESIDUAL_GAS_IONS = [("H2O+", 18.010565, 1.0), ("N2+", 28.006148, 1.0), ("O2+", 31.989830, 1.0), ("CO2+", 43.989830, 1.0)]
 # main peaks of the measured spectrum and the gas ions expected to produce them
 MAIN_PEAKS = [("He2+", 8.4e-6), ("He+", 11.8e-6), ("Ar3+", 21.7e-6), ("Ar2+", 26.4e-6), ("Ar1+", 37.4e-6)]
 
@@ -82,24 +87,42 @@ def fragment_species(catching_kV:float, max_species:int, half_life:float = 600.0
     return kept
 
 
-def configurations(quick:bool) -> list[tuple[str,str,dict]]:
+def cloud_label(entry:str) -> tuple[str,dict]:
+    '''
+    Cloud configuration "T" or "T_par/T_perp" [K] -> label and parameters.
+    '''
+    temperatures = [int(float(value)) if float(value).is_integer() else float(value) for value in entry.split("/")]
+    parameters = {"temperature_K": temperatures[0]}
+    if len(temperatures) > 1:
+        parameters["T_perp_K"] = temperatures[1]
+    return f"T={entry} K", parameters
+
+
+def configurations(quick:bool, cloud:list[str], B_map:str = None) -> list[tuple[str,str,dict]]:
     N, iterations = (2000, 2) if quick else (5000, 3)
     common = dict(trap_floor_V=FLOOR_V, trap_wall_V=WALL_V, tof_range=[0, 60e-6], tof_dt=SIM_BIN, N_particles=N, iterations=iterations,
                   showfig=False, seed=1)
+    field = {"B_map": B_map} if B_map else {} # (the legacy engine has no magnetic field)
     configs = []
     for sc_min, sc_max in ([(0.0, None), (4.0, None)] if quick else [(0.0, None), (4.0, None), (0.0, 0.3), (0.2, 1.2), (1.0, 3.0)]):
         configs.append(("legacy engine", f"sc {sc_min}-{sc_max} V", dict(common, engine="legacy", spacecharge_min_V=sc_min, spacecharge_max_V=sc_max)))
-    for T in ([300, 3000] if quick else [300, 3000, 10000, 30000]):
-        configs.append(("tracking cloud", f"T={T} K", dict(common, engine="tracking", model="cloud", temperature_K=T, cloud_radius_mm=1.0)))
+    for entry in (cloud[:2] if quick else cloud):
+        label, temperatures = cloud_label(entry)
+        configs.append(("tracking cloud", label, dict(common, engine="tracking", model="cloud", cloud_radius_mm=1.0, **temperatures, **field)))
     return configs
 
 
-def plasma_configurations(quick:bool, weights:np.ndarray) -> list[tuple[str,str,dict]]:
+def plasma_configurations(quick:bool, weights:np.ndarray, plasma:list[str], B_map:str = None) -> list[tuple[str,str,dict]]:
+    '''
+    Plasma configurations "N@T" (number of charges @ temperature [K]).
+    '''
     N, iterations = (1000, 2) if quick else (3000, 2)
     common = dict(trap_floor_V=FLOOR_V, trap_wall_V=WALL_V, tof_range=[0, 60e-6], tof_dt=SIM_BIN, N_particles=N, iterations=iterations,
                   showfig=False, seed=1, engine="tracking", model="plasma", plasma_radius_mm=1.0, weights=list(map(float, weights)))
-    grid = [(1e6, 1000)] if quick else [(1e6, 1000), (1e6, 10000), (5e6, 1000), (5e6, 10000)]
-    return [("tracking plasma", f"N={n:.0e} T={T} K", dict(common, n_charges=n, temperature_K=T)) for n, T in grid]
+    field = {"B_map": B_map} if B_map else {}
+    grid = [(float(entry.split("@")[0]), int(float(entry.split("@")[1])) if float(entry.split("@")[1]).is_integer() else float(entry.split("@")[1]))
+            for entry in (plasma[:1] if quick else plasma)]
+    return [("tracking plasma", f"N={n:.0e} T={T:g} K", dict(common, n_charges=n, temperature_K=T, **field)) for n, T in grid]
 
 
 def _run(model:str, label:str, parameters:dict):
@@ -154,8 +177,8 @@ def peak_calibration(data:dict, unshifted:np.ndarray, species:pl.DataFrame, n_fr
 def fit(data:dict, signal:pl.DataFrame, species:pl.DataFrame, n_fragments:int) -> dict:
     '''
     Non-negative fit of the component amplitudes:
-     - with the time calibration (effective flight distance 1.05 m * scale and shift) from the positions of the main peaks
-       (main result),
+     - with the time calibration (effective flight distance 1.05 m * scale and shift) anchored at the positions of the main
+       peaks and refined locally (within 2% of the distance and 150 ns) to the best chi2 (main result),
      - with the calibration scanned freely (the amplitudes of many species can compensate a wrong calibration,
        so this minimum isn't always physical),
      - with the nominal flight distance and the shift scanned.
@@ -164,14 +187,17 @@ def fit(data:dict, signal:pl.DataFrame, species:pl.DataFrame, n_fragments:int) -
     measured = np.nan_to_num(data["signal"][selected]) / data["noise"]
     components = Components(signal, species, n_fragments)
     unshifted = components.matrix(1.0, 0.0)
-    scale, shift = peak_calibration(data, unshifted, species, n_fragments)
-    amplitudes, chi2 = _nnls(components, measured, selected, data["noise"], scale, shift)
+    # the peak positions (known only to ~one bin) anchor the calibration, which is then refined locally
+    scale_peaks, shift_peaks = peak_calibration(data, unshifted, species, n_fragments)
+    chi2, scale, shift = min(((_nnls(components, measured, selected, data["noise"], k, s)[1], k, s)
+                              for k in scale_peaks + LOCAL_SCALES for s in shift_peaks + LOCAL_SHIFTS))
+    amplitudes, _ = _nnls(components, measured, selected, data["noise"], scale, shift)
     matrix = components.matrix(scale, shift)
     nominal = min(((_nnls(components, measured, selected, data["noise"], 1.0, s)[1], s) for s in SHIFTS))
     free = min(((_nnls(components, measured, selected, data["noise"], k, s)[1], k, s) for k in SCALES for s in SHIFTS[::3]))
     # refine the shift for the best scale
     free = min(((_nnls(components, measured, selected, data["noise"], free[1], s)[1], free[1], s) for s in SHIFTS))
-    return {"chi2": chi2, "scale": scale, "shift": shift, "amplitudes": amplitudes,
+    return {"chi2": chi2, "scale": scale, "shift": shift, "amplitudes": amplitudes, "scale_peaks": scale_peaks, "shift_peaks": shift_peaks,
             "model": matrix @ amplitudes, "components": matrix * amplitudes[None, :], "unshifted": unshifted,
             "free_chi2": free[0], "free_scale": free[1], "free_shift": free[2],
             "free_amplitudes": _nnls(components, measured, selected, data["noise"], free[1], free[2])[0],
@@ -198,12 +224,12 @@ def peak_table(data:dict, results:dict, species:pl.DataFrame, n_fragments:int) -
     return pl.DataFrame(rows)
 
 
-def plot(data:dict, results:dict, species:pl.DataFrame, n_fragments:int) -> None:
+def plot(data:dict, results:dict, species:pl.DataFrame, n_fragments:int, path:str) -> None:
     colors = plt.cm.tab10.colors
     fig, axes = plt.subplots(len(results) + 1, 1, figsize=(11, 3.2 * (len(results) + 1)), sharex=True)
     for ax, (name, result) in zip(axes, results.items()):
         ax.plot(CENTRES * 1e6, data["signal"] * 1e3, 'k-', lw=0.7, label=f"data (runs {', '.join(map(str, data['runs']))})")
-        ax.plot(CENTRES * 1e6, result["model"] * 1e3, '-', color='tab:red', lw=1, label=f"fit, chi2/dof={result['chi2']:.2f}, distance={NOMINAL_DISTANCE_M*result['scale']:.4f} m, shift={result['shift']*1e9:.0f} ns (from peak positions)")
+        ax.plot(CENTRES * 1e6, result["model"] * 1e3, '-', color='tab:red', lw=1, label=f"fit, chi2/dof={result['chi2']:.2f}, distance={NOMINAL_DISTANCE_M*result['scale']:.4f} m, shift={result['shift']*1e9:.0f} ns")
         ax.plot(CENTRES * 1e6, result["components"][:, 0] * 1e3, '-', color='tab:green', lw=1, label=r"$\bar{p}$-Ar40 fragments")
         ax.set_title(name, fontsize=9)
         ax.set_ylabel("MCP signal [mV]")
@@ -220,13 +246,14 @@ def plot(data:dict, results:dict, species:pl.DataFrame, n_fragments:int) -> None
     ax.grid()
     ax.legend(fontsize=7)
     fig.tight_layout()
-    fig.savefig(output_path("ar40_fits.png"), dpi=150)
+    fig.savefig(path, dpi=150)
     plt.close(fig)
 
 
 def summary_row(model:str, label:str, result:dict, runtime:float) -> dict:
     return {"model": model, "label": label, "chi2_dof": result["chi2"], "distance_m": NOMINAL_DISTANCE_M * result["scale"],
             "shift_ns": result["shift"] * 1e9,
+            "distance_peaks_m": NOMINAL_DISTANCE_M * result["scale_peaks"], "shift_peaks_ns": result["shift_peaks"] * 1e9,
             "chi2_dof_free_scan": result["free_chi2"], "distance_free_scan_m": NOMINAL_DISTANCE_M * result["free_scale"],
             "shift_free_scan_ns": result["free_shift"] * 1e9,
             "chi2_dof_nominal_distance": result["chi2_nominal"], "shift_nominal_ns": result["shift_nominal"] * 1e9,
@@ -240,14 +267,23 @@ def main():
     parser.add_argument("--quick", action="store_true")
     parser.add_argument("--runs", type=int, nargs="+", default=[427300, 427304, 427316])
     parser.add_argument("--max_fragments", type=int, default=30)
+    parser.add_argument("--B_map", default=None, help="magnetic field of the tracking engine (e.g. aegis), default uniform 5 T")
+    parser.add_argument("--cloud", nargs="+", default=["300", "3000", "10000", "30000"],
+                        help="cloud temperatures, T or T_par/T_perp [K]")
+    parser.add_argument("--plasma", nargs="*", default=["1e6@1000", "1e6@10000", "5e6@1000", "5e6@10000"],
+                        help="plasma configurations, number of charges@temperature [K] (none: no plasma)")
+    parser.add_argument("--residual_gas", action="store_true", help="add the molecular ions H2O+, N2+, O2+, CO2+ to the fit")
+    parser.add_argument("--tag", default="", help="tag added to the names of the output files")
     args = parser.parse_args()
+    name = lambda title: f"ar40_{args.tag}_{title}" if args.tag else f"ar40_{title}"
     start = time.time()
     data = load_runs(args.runs)
     fragments = fragment_species(data["catching_kV"], args.max_fragments)
-    fragments.write_csv(output_path("ar40_fragments.csv"))
+    fragments.write_csv(output_path(name("fragments.csv")))
+    gas = GAS_IONS + (RESIDUAL_GAS_IONS if args.residual_gas else [])
     species = pl.concat([fragments.select("label", "m_over_q", pl.col("fragmentZ").cast(pl.Float64).alias("charge"), pl.col("yield").alias("weight")),
-                         pl.DataFrame({"label": [g[0] for g in GAS_IONS], "m_over_q": [g[1] for g in GAS_IONS],
-                                       "charge": [g[2] for g in GAS_IONS], "weight": [1.0] * len(GAS_IONS)})])
+                         pl.DataFrame({"label": [g[0] for g in gas], "m_over_q": [g[1] for g in gas],
+                                       "charge": [g[2] for g in gas], "weight": [1.0] * len(gas)})])
     n_fragments = len(fragments)
     species_parameters = dict(mq=species["m_over_q"].to_list(), labels=species["label"].to_list(),
                               charges=species["charge"].to_list(), weights=species["weight"].to_list())
@@ -257,7 +293,7 @@ def main():
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
             return list(pool.map(_run, *zip(*jobs)))
 
-    simulations = run_all(configurations(args.quick))
+    simulations = run_all(configurations(args.quick, args.cloud, args.B_map))
     print(f"Simulations done ({time.time()-start:.0f} s)")
     results, rows = {}, []
     for model, label, parameters, signal, runtime, error in simulations:
@@ -268,14 +304,17 @@ def main():
         results[f"{model} ({label})"] = result
         rows.append(summary_row(model, label, result, runtime))
     # plasma with the abundances of the free-scan fit of the best cloud (number of ions = amplitude of the normalised signal)
-    cloud = min((r for r in rows if r["model"] == "tracking cloud"), key=lambda r: r["chi2_dof_free_scan"])
-    amplitudes = results[f"tracking cloud ({cloud['label']})"]["free_amplitudes"]
-    weights = np.concatenate([fragments["yield"].to_numpy() / fragments["yield"].sum() * amplitudes[0], amplitudes[1:]])
-    weights = np.maximum(weights, 1e-6 * weights.max())
-    # abundances used by the plasma simulations (needed to find them in the cache, e.g. by plot_ar40_first_peak.py)
-    with open(output_path("ar40_plasma_weights.json"), "w") as f:
-        json.dump(list(map(float, weights)), f)
-    for model, label, parameters, signal, runtime, error in run_all(plasma_configurations(args.quick, weights)):
+    plasma_simulations = []
+    if args.plasma:
+        cloud = min((r for r in rows if r["model"] == "tracking cloud"), key=lambda r: r["chi2_dof_free_scan"])
+        amplitudes = results[f"tracking cloud ({cloud['label']})"]["free_amplitudes"]
+        weights = np.concatenate([fragments["yield"].to_numpy() / fragments["yield"].sum() * amplitudes[0], amplitudes[1:]])
+        weights = np.maximum(weights, 1e-6 * weights.max())
+        # abundances used by the plasma simulations (needed to find them in the cache, e.g. by plot_ar40_first_peak.py)
+        with open(output_path(name("plasma_weights.json")), "w") as f:
+            json.dump(list(map(float, weights)), f)
+        plasma_simulations = run_all(plasma_configurations(args.quick, weights, args.plasma, args.B_map))
+    for model, label, parameters, signal, runtime, error in plasma_simulations:
         if signal is None:
             print(f"{model} {label} failed: {error}")
             continue
@@ -287,14 +326,14 @@ def main():
     peaks = peak_table(data, best, species, n_fragments)
     abundances = pl.DataFrame({"component": ["fragments"] + species.slice(n_fragments)["label"].to_list(),
                                **{name: result["components"].sum(axis=0) / result["model"].sum() for name, result in best.items()}})
-    summary.write_csv(output_path("ar40_summary.csv"))
-    peaks.write_csv(output_path("ar40_peaks.csv"))
-    abundances.write_csv(output_path("ar40_abundances.csv"))
+    summary.write_csv(output_path(name("summary.csv")))
+    peaks.write_csv(output_path(name("peaks.csv")))
+    abundances.write_csv(output_path(name("abundances.csv")))
     pl.Config.set_tbl_cols(20); pl.Config.set_tbl_width_chars(250); pl.Config.set_tbl_rows(40)
     print(summary)
     print(peaks)
     print(abundances)
-    plot(data, best, species, n_fragments)
+    plot(data, best, species, n_fragments, output_path(name("fits.png")))
     print(f"Benchmark finished in {time.time()-start:.0f} s")
 
 

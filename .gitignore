@@ -1,4 +1,6 @@
 *~
+.vscode/**
+.vs/**
 fragments_data/**
 data/**
 plots/**

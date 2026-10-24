@@ -63,6 +63,7 @@ usage: calculate_tof.py [-h] --trap_floor_V TRAP_FLOOR_V --trap_wall_V TRAP_WALL
 
 This program simulates the time of flight of particles with specified m/q ratio released after being trapped inside a Penning trap. The model uses multiple simplification assumptions, such as the 1-D nature, particle distribution independent from of particle type of plasma temperature, no magnetic field effects.
 
+```bash
 positional arguments:
   {tof,tof_pbar,tof_fragments}
 
@@ -114,3 +115,4 @@ optional arguments:
                         to <file_prefix>_<file name>
   --fig_format FIG_FORMAT
                         Format of saved figures
+```
