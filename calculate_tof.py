@@ -26,97 +26,106 @@ def _bool(string:str)->bool:
     '''
     return string.lower() in ['true','1']
 
-parser = argparse.ArgumentParser(description="This program simulates the time of flight of particles with specified m/q ratio trapped inside a Penning trap. The model uses multiple simplification assumptions, such as the 1-D nature, paerticle distribution independent from of particle type of plasma temperature, no magnetic field effects.")
-subparser = parser.add_subparsers(dest='command',required=True)
-# common parameters --------------------------->
-parser.add_argument('--trap_floor_V',type=float,required=True,
-                    help="Potential set on electrodes used as floor of the trap.")
-parser.add_argument('--trap_wall_V',type=float,required=True,
-                    help="Potential set on electrodes used as right and left wall of the trap (note: for left wall all electrodes left of the floor electrodes are set)")
-parser.add_argument('--pulse_wall_to_V',type=float,default=0,
-                    help="Expected voltage on the right wall electrodes during the launch of particles from the trap")
-parser.add_argument('--distance_to_mcp_m',type=float,default=1.05,
-                    help="Distance between the middle electrode used for the floor of the trap and the MCP used for measuring the tof spectra")
-parser.add_argument('--spacecharge_min_V',default=None,
-                    help="Minimum space charge felt by the particles")
-parser.add_argument('--spacecharge_max_V',default=None,
-                    help="Maximum space charge felt by the particles")
-parser.add_argument('--trap_left_wall',nargs='+',type=str,default=['P7','P8','P9'],
-                    help="Electrodes used as left wall of the trap")
-parser.add_argument('--trap_floor',nargs='+',type=str,default=['P10','P11','P12'],
-                    help="Electrodes used as floor of the trap")
-parser.add_argument('--trap_right_wall',nargs='+',type=str,default=['P13'],
-                    help="Electrodes used as right wall of the trap")
-parser.add_argument('--thermalised',default=True,
-                    help="Whether to use z distribution as in thermalised case (flatten gaussian) or non-thermalised case (pure gaussian)")
-parser.add_argument('--N_particles',type=int,default=10_000,
-                    help="Number of particles simulated inside the trap for each iteration")
-parser.add_argument('--iterations',type=int,default=10,
-                    help="Number of iterations of simulated N_particles used for calculating average tof spectra")
-parser.add_argument('--tof_range',nargs=2,type=float,default=[0,1e-4],
-                    help="Expected range of the tof signal. It is used for binning the simulated tofs of random particles")
-parser.add_argument('--tof_dt',type=float,default=1e-9,
-                    help="Bin size for calculating final tof spectra (note: the number of bins created by the program can be estimated as (tof_range[1]-tof_range[0])/tof_dt)")
-parser.add_argument('--verbose_level',type=int,default=0,
-                    help="Control the amount of prints from the program. Available levels:0 - no prints; 1 -> print only the tof peaks dataframe at the end; 2 -> print information about current m/q and the ToF signals DataFrame; 3 -> print DataFrames of all calculation steps)")
-parser.add_argument('--savedata_mask',default=0,
-                    help="Bit mask in hex representation for controlling amount of dataframes saved (note: location of data will be <script_path>/data/):0x00 - don't save any DataFrames; 0x01 - save final tof and fitted peak position; 0x02 - save potential dataframe;0x04 - save velocities; 0x08 - save times per particle. Combine masks to save multiple dataframes (0x05 will use 0x01 and 0x04 masks)")
-parser.add_argument('--plot_mask',default=0,
-                    help="Bit mask in hex representation for controlling the amount of plots created by the program. Available levels: 0x00 - no plots; 0x10 - plot final tof signal; 0x01 - plot potential shape; 0x02 - plot initial conditions; 0x04 - plot velocities and times; 0x08 - plot fitted peak. Combine masks to plot multiple plots (0x13 will plot final tof, potential shape, and initial conditions)")
-parser.add_argument('--dpi',type=int,default=200,
-                    help="Dpi of plotted figures (note: all figures are saved with dpi of 600)")
-parser.add_argument('--savefig',default=False,
-                    help="Wheter created figures should be saved (note: location of the plots is <script_path>/plots/)")
-parser.add_argument('--showfig',default=True,
-                    help="Show plots at the end. When this flag is False, figures aren't stored in the memory")
-parser.add_argument('--file_prefix',type=str,default='',
-                    help="Prefix added to file name of the plots and data. File names indicate information about parameters used in the simulation <file name>. If the prefix is added, the file name is updated to <file_prefix>_<file name>")
-parser.add_argument('--fig_format',type=str,default='eps',
-                    help="Format of saved figures")
-# genreal tof --------------------------------->
-tof_parser = subparser.add_parser("tof")
-tof_parser.add_argument('--mq', type=float, required=True,
-                        help="m/q ratio of the particle in the trap [in a.u./e]")
-tof_parser.add_argument('--label',type=str,default=None,
-                        help="Label for the particle in the dataframe")
-tof_parser.add_argument('--weight',type=float,default=None,
-                        help="How much the signal of this particle contributes to total ToF signal")
-# pbar tof ------------------------------------>
-pbar_parser = subparser.add_parser("tof_pbar")
-pbar_parser.add_argument('--weight',type=float,default=1,
-                         help="How much the signal of this particle contributes to total ToF signal")
-# fragments tof ------------------------------->
-fragments_parser = subparser.add_parser("tof_fragments")
-fragments_parser.add_argument('--fragments_data_path',type=str,required=True,
-                              help="Path to the parquet file with yields of fragments from Geant4 simulations")
+def _build_parser()->argparse.ArgumentParser:
+    '''
+    Create the parser of command line arguments
+    '''
+    parser = argparse.ArgumentParser(description="This program simulates the time of flight of particles with specified m/q ratio trapped inside a Penning trap. The model uses multiple simplification assumptions, such as the 1-D nature, paerticle distribution independent from of particle type of plasma temperature, no magnetic field effects.")
+    subparser = parser.add_subparsers(dest='command',required=True)
+    # common parameters --------------------------->
+    parser.add_argument('--trap_floor_V',type=float,required=True,
+                        help="Potential set on electrodes used as floor of the trap.")
+    parser.add_argument('--trap_wall_V',type=float,required=True,
+                        help="Potential set on electrodes used as right and left wall of the trap (note: for left wall all electrodes left of the floor electrodes are set)")
+    parser.add_argument('--pulse_wall_to_V',type=float,default=0,
+                        help="Expected voltage on the right wall electrodes during the launch of particles from the trap")
+    parser.add_argument('--distance_to_mcp_m',type=float,default=1.05,
+                        help="Distance between the middle electrode used for the floor of the trap and the MCP used for measuring the tof spectra")
+    parser.add_argument('--spacecharge_min_V',default=None,
+                        help="Minimum space charge felt by the particles")
+    parser.add_argument('--spacecharge_max_V',default=None,
+                        help="Maximum space charge felt by the particles")
+    parser.add_argument('--trap_left_wall',nargs='+',type=str,default=['P7','P8','P9'],
+                        help="Electrodes used as left wall of the trap")
+    parser.add_argument('--trap_floor',nargs='+',type=str,default=['P10','P11','P12'],
+                        help="Electrodes used as floor of the trap")
+    parser.add_argument('--trap_right_wall',nargs='+',type=str,default=['P13'],
+                        help="Electrodes used as right wall of the trap")
+    parser.add_argument('--thermalised',default=True,
+                        help="Whether to use z distribution as in thermalised case (flatten gaussian) or non-thermalised case (pure gaussian)")
+    parser.add_argument('--N_particles',type=int,default=10_000,
+                        help="Number of particles simulated inside the trap for each iteration")
+    parser.add_argument('--iterations',type=int,default=10,
+                        help="Number of iterations of simulated N_particles used for calculating average tof spectra")
+    parser.add_argument('--tof_range',nargs=2,type=float,default=[0,1e-4],
+                        help="Expected range of the tof signal. It is used for binning the simulated tofs of random particles")
+    parser.add_argument('--tof_dt',type=float,default=1e-9,
+                        help="Bin size for calculating final tof spectra (note: the number of bins created by the program can be estimated as (tof_range[1]-tof_range[0])/tof_dt)")
+    parser.add_argument('--verbose_level',type=int,default=0,
+                        help="Control the amount of prints from the program. Available levels:0 - no prints; 1 -> print only the tof peaks dataframe at the end; 2 -> print information about current m/q and the ToF signals DataFrame; 3 -> print DataFrames of all calculation steps)")
+    parser.add_argument('--savedata_mask',default=0,
+                        help="Bit mask in hex representation for controlling amount of dataframes saved (note: location of data will be <script_path>/data/):0x00 - don't save any DataFrames; 0x01 - save final tof and fitted peak position; 0x02 - save potential dataframe;0x04 - save velocities; 0x08 - save times per particle. Combine masks to save multiple dataframes (0x05 will use 0x01 and 0x04 masks)")
+    parser.add_argument('--plot_mask',default=0,
+                        help="Bit mask in hex representation for controlling the amount of plots created by the program. Available levels: 0x00 - no plots; 0x10 - plot final tof signal; 0x01 - plot potential shape; 0x02 - plot initial conditions; 0x04 - plot velocities and times; 0x08 - plot fitted peak. Combine masks to plot multiple plots (0x13 will plot final tof, potential shape, and initial conditions)")
+    parser.add_argument('--dpi',type=int,default=200,
+                        help="Dpi of plotted figures (note: all figures are saved with dpi of 600)")
+    parser.add_argument('--savefig',default=False,
+                        help="Wheter created figures should be saved (note: location of the plots is <script_path>/plots/)")
+    parser.add_argument('--showfig',default=True,
+                        help="Show plots at the end. When this flag is False, figures aren't stored in the memory")
+    parser.add_argument('--file_prefix',type=str,default='',
+                        help="Prefix added to file name of the plots and data. File names indicate information about parameters used in the simulation <file name>. If the prefix is added, the file name is updated to <file_prefix>_<file name>")
+    parser.add_argument('--fig_format',type=str,default='eps',
+                        help="Format of saved figures")
+    # genreal tof --------------------------------->
+    tof_parser = subparser.add_parser("tof")
+    tof_parser.add_argument('--mq', type=float, required=True,
+                            help="m/q ratio of the particle in the trap [in a.u./e]")
+    tof_parser.add_argument('--label',type=str,default=None,
+                            help="Label for the particle in the dataframe")
+    tof_parser.add_argument('--weight',type=float,default=None,
+                            help="How much the signal of this particle contributes to total ToF signal")
+    # pbar tof ------------------------------------>
+    pbar_parser = subparser.add_parser("tof_pbar")
+    pbar_parser.add_argument('--weight',type=float,default=1,
+                             help="How much the signal of this particle contributes to total ToF signal")
+    # fragments tof ------------------------------->
+    fragments_parser = subparser.add_parser("tof_fragments")
+    fragments_parser.add_argument('--fragments_data_path',type=str,required=True,
+                                  help="Path to the parquet file with yields of fragments from Geant4 simulations")
+    # calibration with antiprotons ------------------>
+    subparser.add_parser("tof_calibration")
+    return parser
 
-args = sys.argv[1:]
-try:
-    dash_index = args.index("--")
-    args, cmd_args = args[:dash_index], args[dash_index+1:]
-except ValueError:
-    args, cmd_args = args, []
-args = parser.parse_args(args)
-if isinstance(args.thermalised,str):
-    args.thermalised = _bool(args.thermalised)
-if isinstance(args.plot_mask,str):
-    args.plot_mask = int(args.plot_mask,base=16)
-if isinstance(args.savefig,str):
-    args.savefig = _bool(args.savefig)
-if isinstance(args.showfig,str):
-    args.showfig = _bool(args.showfig)
-if isinstance(args.savedata_mask,str):
-    args.savedata_mask = int(args.savedata_mask,base=16)
-try:
-    args.spacecharge_min_V=float(str(args.spacecharge_min_V))
-except ValueError:
-    args.spacecharge_min_V=None
-try:
-    args.spacecharge_max_V=float(str(args.spacecharge_max_V))
-except ValueError:
-    args.spacecharge_max_V=None
-    
-    
+
+def parse_args(argv:Optional[list[str]] = None)->argparse.Namespace:
+    '''
+    Parse command line arguments (everything after "--" is ignored) and convert them to proper types
+    '''
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if "--" in argv:
+        argv = argv[:argv.index("--")]
+    args = _build_parser().parse_args(argv)
+    if isinstance(args.thermalised,str):
+        args.thermalised = _bool(args.thermalised)
+    if isinstance(args.plot_mask,str):
+        args.plot_mask = int(args.plot_mask,base=16)
+    if isinstance(args.savefig,str):
+        args.savefig = _bool(args.savefig)
+    if isinstance(args.showfig,str):
+        args.showfig = _bool(args.showfig)
+    if isinstance(args.savedata_mask,str):
+        args.savedata_mask = int(args.savedata_mask,base=16)
+    try:
+        args.spacecharge_min_V=float(str(args.spacecharge_min_V))
+    except ValueError:
+        args.spacecharge_min_V=None
+    try:
+        args.spacecharge_max_V=float(str(args.spacecharge_max_V))
+    except ValueError:
+        args.spacecharge_max_V=None
+    return args
+
 
 # for fitting the peak from tof and finding the maximum position
 def _fit_function(x, a, b, c, d=0):
@@ -160,6 +169,7 @@ def _save_fig(fig:plt.Figure,
     Function for building the path to the plot and saving image
     '''
     filename = _build_filename(file_prefix,title,file_suffix,fig_format)
+    os.makedirs(os.path.join(os.path.dirname(__file__),'plots'),exist_ok=True)
     fig.savefig(os.path.join(os.path.dirname(__file__),'plots',filename),dpi=600)
 
 
@@ -170,8 +180,47 @@ def _save_data(data:pl.DataFrame,
     '''
     Helper function for consistant saving of data
     '''
-    filename = filename = _build_filename(file_prefix,title,file_suffix,"parquet")
+    filename = _build_filename(file_prefix,title,file_suffix,"parquet")
+    os.makedirs(os.path.join(os.path.dirname(__file__),'data'),exist_ok=True)
     data.write_parquet(os.path.join(os.path.dirname(__file__),'data',filename))
+
+
+def _trap_center_position(trap_floor:Union[str,list[str]])->float:
+    '''
+    Position of the middle of the trap floor in coordinates of the trap object without offset [mm]
+    '''
+    if isinstance(trap_floor,str):
+        trap_floor=[trap_floor]
+    aegis_trap = TTrap()
+    if len(trap_floor) % 2 == 0:
+        return (aegis_trap._GetElectrode(trap_floor[len(trap_floor)//2-1]).GetElectrodeEnd() + aegis_trap._GetElectrode(trap_floor[len(trap_floor)//2]).GetElectrodeStart())/2
+    return aegis_trap._GetElectrode(trap_floor[len(trap_floor)//2]).GetElectrodeCenter()
+
+
+def _electrode_voltages(electrodes:list[str],
+                        trap_floor_V:float,
+                        trap_wall_V:float,
+                        pulse_wall_to_V:float,
+                        trap_floor:Union[str,list[str]],
+                        trap_right_wall:Union[str,list[str]]
+                        )->tuple[dict[str,float],dict[str,float]]:
+    '''
+    Potentials set on electrodes before (prepare) and after (launch) pulsing the right wall of the trap.
+    All electrodes before the floor are used as the left wall, electrodes after the right wall are grounded.
+    '''
+    if isinstance(trap_floor,str):
+        trap_floor=[trap_floor]
+    if isinstance(trap_right_wall,str):
+        trap_right_wall=[trap_right_wall]
+    prepare = {electrode:0.0 for electrode in electrodes}
+    for electrode in electrodes:
+        prepare[electrode] = trap_floor_V if electrode in trap_floor else trap_wall_V
+        if electrode == trap_right_wall[-1]:
+            break
+    launch = dict(prepare)
+    for electrode in trap_right_wall:
+        launch[electrode] = pulse_wall_to_V
+    return prepare, launch
 
 
 def _calculate_potential_shape(trap_floor_V:float = 150,
@@ -194,35 +243,27 @@ def _calculate_potential_shape(trap_floor_V:float = 150,
         trap_right_wall=[trap_right_wall]
 
     # start by creating the potentials
-    # create the trap object to find the middle position of the trap well
-    aegis_trap = TTrap()
-    center_position = 0
-    if len(trap_floor) % 2 == 0:
-        center_position = (aegis_trap._GetElectrode(trap_floor[int(len(trap_floor)/2)-1]).GetElectrodeEnd() + aegis_trap._GetElectrode(trap_floor[int(len(trap_floor)/2)]).GetElectrodeStart())/2
-    else:
-        center_position = aegis_trap._GetElectrode(trap_floor[int(len(trap_floor)/2)]).GetElectrodeCenter()
-    # update trap object centered at the trap well
-    aegis_trap = TTrap(position=-center_position)
+    # create the trap object centered at the trap well
+    aegis_trap = TTrap(position=-_trap_center_position(trap_floor))
     if verbose_level > 2:
         aegis_trap.Print()
-    
-    electrodes = aegis_trap.GetElectrodeNames()
+
+    V_prepare, V_launch = _electrode_voltages(electrodes=aegis_trap.GetElectrodeNames(),
+                                              trap_floor_V=trap_floor_V,
+                                              trap_wall_V=trap_wall_V,
+                                              pulse_wall_to_V=pulse_wall_to_V,
+                                              trap_floor=trap_floor,
+                                              trap_right_wall=trap_right_wall)
     # reset the potentials in the trap
     aegis_trap.SetEverythingToZero()
     # set potentials for the trapping well
-    for electrode in electrodes:
-        if electrode in trap_floor:
-            aegis_trap.SetElectrodeV(electrode,trap_floor_V)
-        else:
-            aegis_trap.SetElectrodeV(electrode,trap_wall_V)
-        if electrode == trap_right_wall[-1]:
-            break
+    for electrode,V in V_prepare.items():
+        aegis_trap.SetElectrodeV(electrode,V)
     trap_potential_prepare = aegis_trap.get_final_V()
 
     # set potentials after pulsing right wall
-    for electrode in trap_right_wall:
-        aegis_trap.SetElectrodeV(electrode,pulse_wall_to_V)
-
+    for electrode,V in V_launch.items():
+        aegis_trap.SetElectrodeV(electrode,V)
     trap_potential_launch = aegis_trap.get_final_V()
 
     potential_df = pl.DataFrame({'z [mm]':np.array([aegis_trap.position + i*aegis_trap.dx for i in range(aegis_trap.segments)]),
@@ -233,10 +274,11 @@ def _calculate_potential_shape(trap_floor_V:float = 150,
     # the trapping is done between the first electrode of the left wall and the last electrode of the right wall
     # the maximum trapping potential is defined by the right wall
     trap_max = (potential_df.filter(pl.col('z [mm]').is_between(0,aegis_trap._GetElectrode(trap_right_wall[-1]).GetElectrodeEnd()))
-                .filter(pl.col("V_prepare") == pl.col("V_prepare").max()))
+                .filter(pl.col("V_prepare") == pl.col("V_prepare").max())
+                .head(1))
     # select potential that is the actual trap
-    potential_df = (potential_df.with_columns(((pl.col('z [mm]').is_between(aegis_trap._GetElectrode(trap_left_wall[0]).GetElectrodeStart(),trap_max['z [mm]'])
-                                                &(pl.col('V_prepare') <= trap_max['V_prepare'])).alias("full_trap"))))
+    potential_df = (potential_df.with_columns(((pl.col('z [mm]').is_between(aegis_trap._GetElectrode(trap_left_wall[0]).GetElectrodeStart(),trap_max['z [mm]'].item())
+                                                &(pl.col('V_prepare') <= trap_max['V_prepare'].item())).alias("full_trap"))))
     
     # add a flag for limiting plotting
     potential_df = potential_df.with_columns(interest_region = (pl.col('z [mm]') > aegis_trap._GetElectrode(trap_left_wall[0]).GetElectrodeStart()) & (pl.col("V_launch") > 0))
@@ -341,7 +383,6 @@ def _plot_potential_shape(potential_df:pl.DataFrame,
     ax.plot(V_full_min['z [mm]'],V_full_min['V_prepare'],'v',markersize=4,color='tab:red',label="trap $V_{min}$") # ,markerfacecolor='white'
 
     # ax00.set_xlabel('Distance from center trap electrode [mm]')
-    ax.set_xticklabels = []
     ax.set_ylabel('Potential [V]')
     ax.set_xlabel("distance from center electrode [mm]")
     ax.grid()
@@ -441,13 +482,18 @@ def _calculate_initial_conditions(potential_df:pl.DataFrame,
     '''
     Generate particles inside trapped region according to uniform distribution in potential and generlised normal distribution in z
     '''
-    # we are using generalised normal distribution for the z distribution
-    
+    # we are using generalised normal distribution for the z distribution truncated to the filled part of the trap
+    # (outside of it the splines would be extrapolated)
+    z_limit = potential_df.filter("filled_trap").select(pl.min('z [mm]')).item()
+    z_end = potential_df.filter("filled_trap").select(pl.max('z [mm]')).item()
     z_random = gennorm.rvs(beta=beta,loc=loc,scale=scale,size=(iterations,N_particles))
+    outside = (z_random < z_limit) | (z_random > z_end)
+    while outside.any():
+        z_random[outside] = gennorm.rvs(beta=beta,loc=loc,scale=scale,size=outside.sum())
+        outside = (z_random < z_limit) | (z_random > z_end)
     V_launch_random = spl_V_launch(z_random)
     V_prepare_random = spl_V_prepare(z_random)
     dV_random = np.random.uniform(0,1,size=(iterations,N_particles)) * spl_dV(z_random)
-    z_limit = potential_df.filter("filled_trap").select(pl.min('z [mm]')).item()
 
     random_initial_conditions = (pl.DataFrame({"iteration":np.arange(0,iterations),
                                                "particle":np.array([np.arange(0,N_particles)]*iterations),
@@ -529,12 +575,14 @@ def _plot_initial_conditions(particles_df:pl.DataFrame,
 
 
 def _calculate_velocities(particles_df:pl.DataFrame,
-                         mq:float, # m/q in keV
+                         mq:float, # m/q in eV/e
                          dx_mm:float,
                          verbose_level:int = 0
                          )->pl.DataFrame:
     '''
-    Calculate valocities baed on the initial conditions
+    Calculate velocities based on the initial conditions.
+    The row with z <= z_i < z + dx holds the initial velocity of the particle (at z_i),
+    other rows hold the velocity of the particle at each point z of the potential after the launch.
     '''
     # calculate v(z) first
     particles_df = (particles_df.with_columns(pl.when(pl.col('z [mm]')>=pl.col("z_i [mm]"))
@@ -543,7 +591,7 @@ def _calculate_velocities(particles_df:pl.DataFrame,
                                               .then(pl.col("dV_i"))
                                               .alias("dV")
                                               )
-                                 .with_columns((np.sqrt(2 * pl.col("dV") / mq) * loader.SPEED_OF_LIGHT).alias("v [m/s]")))
+                                 .with_columns(((2 * pl.col("dV") / mq).sqrt() * loader.SPEED_OF_LIGHT).alias("v [m/s]")))
     
     if verbose_level > 2:
         print("Calculated velocities:")
@@ -559,19 +607,32 @@ def _calculate_times(particles_df:pl.DataFrame,
                     )->pl.DataFrame:
     '''
     Calculate times it takes each particle to reach the detector.
+    Between neighbouring points the force is assumed to be constant, so the time needed to travel distance dz
+    is 2 dz / (v_a + v_b), where v_a and v_b are velocities at the beginning and at the end of the step.
+    The first step starts at the initial position z_i and ends at the next point of the potential.
+    After the last point of the potential the particle drifts with its final velocity to the detector.
+    Particles which can't reach the end of the potential (negative kinetic energy on the way) stay trapped and get t = NaN.
     '''
-    times_df = (particles_df.with_columns(pl.when(pl.col('z [mm]')>=pl.col("z_i [mm]"),pl.col('v [m/s]')>0)
-                                          .then(dx_mm/1000 / pl.col("v [m/s]"))
-                                          .when(pl.col("z_i [mm]").is_between(pl.col('z [mm]'),pl.col('z [mm]')+dx_mm),pl.col('v [m/s]')>0)
-                                          .then((pl.col("z_i [mm]") - pl.col('z [mm]')) / 1000 / pl.col("v [m/s]"))
-                                          .fill_null(0)
-                                          .alias("dt [s]"))
+    times_df = (particles_df.sort('iteration','particle','z [mm]')
+                .with_columns(pl.col("v [m/s]").shift(-1).over('iteration','particle').alias("v_next [m/s]"),
+                              pl.when(pl.col('z [mm]')>=pl.col("z_i [mm]"))
+                              .then(pl.lit(dx_mm))
+                              .otherwise(pl.col('z [mm]') + dx_mm - pl.col("z_i [mm]"))
+                              .alias("dz [mm]"))
+                # the last point of the potential has no next point (the drift is calculated separately)
+                .with_columns((2 * pl.col("dz [mm]") / 1000 / (pl.col("v [m/s]") + pl.col("v_next [m/s]"))).fill_null(0).alias("dt [s]"))
                 .group_by('iteration','particle',"z_i [mm]")
-                .agg((remaining_distance_m / pl.col("v [m/s]").max()).alias('t_base [s]'),
+                .agg(pl.col("v [m/s]").is_nan().any().alias("trapped"),
+                     (remaining_distance_m / pl.col("v [m/s]").sort_by('z [mm]').last()).alias('t_base [s]'),
                      pl.col("dt [s]").sum().alias('t_inside_trap [s]'))
-                .with_columns((pl.col("t_base [s]") + pl.col("t_inside_trap [s]")).alias('t [s]'))
+                .with_columns(pl.when(pl.col("trapped"))
+                              .then(float('nan'))
+                              .otherwise(pl.col("t_base [s]") + pl.col("t_inside_trap [s]"))
+                              .alias('t [s]'))
                 )
-    
+
+    if verbose_level>1:
+        print(f"Particles which stayed trapped: {times_df.select(pl.col('trapped').mean()).item()*100:.3f}%")
     if verbose_level>2:
         print("Calculated times:")
         print(times_df)
@@ -600,7 +661,8 @@ def _plot_velocities_times(potential_df:pl.DataFrame,
               .group_by("z [mm]","z_i_bin").agg(pl.col("v [m/s]").mean(),
                                                   pl.col("v [m/s]").std().alias("v_std [m/s]")))
 
-    t_plot = (times_df.with_columns(cut=pl.col("z_i [mm]").cut(z_bins,include_breaks=True))
+    t_plot = (times_df.filter(pl.col("t [s]").is_not_nan())
+              .with_columns(cut=pl.col("z_i [mm]").cut(z_bins,include_breaks=True))
               .unnest("cut").rename({'breakpoint':"z_i_bin"})
               .group_by("z_i_bin").agg(pl.col("t [s]").mean(),
                                        pl.col("t [s]").std().alias("t_std [s]")))
@@ -668,22 +730,31 @@ def _calculate_tof_signal(times_df:pl.DataFrame,
                          verbose_level:int = 0
                          )->pl.DataFrame:
     '''
-    Bin the calculated times to create an expected signal
+    Bin the calculated times to create an expected signal.
+    The signal is the fraction of simulated particles in each time bin averaged over all iterations
+    (iterations without counts in the bin contribute with zero). Time of the bin is its centre.
+    Bins without counts in all iterations are not stored.
     '''
-    # bin the times to create a signal
-    times_df = (times_df.with_columns(cut=pl.col('t [s]').cut(np.arange(*tof_range,tof_dt),include_breaks=True))
-                .unnest("cut").rename({'breakpoint':"t_bin [s]"})
-                .filter(pl.col("t_bin [s]") != np.inf)
-                .group_by('t_bin [s]','iteration').agg(pl.col("t [s]").count().alias("signal"))
-                .group_by('t_bin [s]').agg(pl.col("signal").mean()/N_particles,
-                                           (pl.col("signal").std()/np.sqrt(iterations)/N_particles).alias("signal_err"))
-                .sort('t_bin [s]')
-                .rename({'t_bin [s]':'t [s]'})
+    n_bins = int(round((tof_range[1] - tof_range[0]) / tof_dt))
+    bin_edges = tof_range[0] + tof_dt * np.arange(n_bins + 1)
+    times = times_df.filter(pl.col("t [s]").is_not_nan()).select("iteration","t [s]")
+    iteration_ids = times["iteration"].to_numpy()
+    t = times["t [s]"].to_numpy()
+    counts = np.stack([np.histogram(t[iteration_ids == i], bins=bin_edges)[0] for i in range(iterations)])
+    signal = counts.mean(axis=0) / N_particles
+    if iterations > 1:
+        signal_err = counts.std(axis=0, ddof=1) / np.sqrt(iterations) / N_particles
+    else:
+        signal_err = np.sqrt(counts[0]) / N_particles
+    non_empty = counts.sum(axis=0) > 0
+    times_df = (pl.DataFrame({'t [s]':(bin_edges[:-1] + tof_dt/2)[non_empty],
+                              'signal':signal[non_empty],
+                              'signal_err':signal_err[non_empty]})
                 .with_columns(pl.lit(label).alias("label"),
                               pl.lit(mq).alias("m/q"),
                               pl.lit(weight).alias("weight"))
                 )
-                            
+
     if verbose_level > 2:
         print("Calculated signal:")
         print(times_df)
@@ -700,10 +771,14 @@ def _fit(times_df:pl.DataFrame,
               fit_df.filter(pl.col('signal') == pl.col('signal').max()).select(pl.mean('t [s]')).item(), # time of the maximum as the average
               fit_df.select((pl.col("t [s]").max() - pl.col("t [s]").min())/2).item(), # width of the region as the sigma
              ]
+        # bins with zero (or undefined) uncertainty would get infinite weight in the fit
+        sigma = fit_df["signal_err"].to_numpy()
+        positive = np.isfinite(sigma) & (sigma > 0)
+        sigma = np.where(positive, sigma, sigma[positive].min()) if positive.any() else None
         popt,pcov = curve_fit(fit_fcn,
                                 fit_df["t [s]"],
                                 fit_df["signal"],
-                                sigma=fit_df["signal_err"],
+                                sigma=sigma,
                                 p0=p0)
         tof_peak = pl.DataFrame({"label":times_df.select(pl.first('label')).item(),
                                  "m/q":times_df.select(pl.first('m/q')).item(),
@@ -801,7 +876,8 @@ def _plot_total_tof_signal(tof_signal:pl.DataFrame,
 
     ToF_signal_total = (tof_signal.group_by('t [s]')
                         .agg((pl.col("signal")*pl.col("weight")).sum(),
-                             (pl.col("signal_err")*pl.col("weight")).sum())
+                             (pl.col("signal_err")*pl.col("weight")).pow(2).sum().sqrt())
+                        .sort('t [s]')
                         .with_columns(lower=pl.col("signal")-pl.col("signal_err"),
                                       upper=pl.col("signal")+pl.col("signal_err")))
     
@@ -814,7 +890,7 @@ def _plot_total_tof_signal(tof_signal:pl.DataFrame,
         labels_to_plot = pl.Series(tof_signal.unique(['label']).sort("weight",descending=True).select(pl.col("label").head(6))).to_list()
         ToF_signal_other = (tof_signal.filter(pl.col("label").is_in(labels_to_plot).not_())
                             .group_by('t [s]').agg((pl.col("signal")*pl.col("weight")).sum(),
-                                                    (pl.col("signal_err")*pl.col("weight")).sum())
+                                                    (pl.col("signal_err")*pl.col("weight")).pow(2).sum().sqrt())
                             .sort('t [s]')
         )
         for i,label in enumerate(labels_to_plot):
@@ -833,28 +909,33 @@ def _plot_total_tof_signal(tof_signal:pl.DataFrame,
 def calculate_tof(mq:Union[float,list[float]],
                   labels: Union[str,list[str],None] = None,
                   weights: Union[float,list[float],None] = None,
-                  trap_floor_V:float=args.trap_floor_V, # V
-                  trap_wall_V:float=args.trap_wall_V, # V
-                  pulse_wall_to_V:float=args.pulse_wall_to_V, # V
-                  distance_to_mcp_m:float=args.distance_to_mcp_m, # m
-                  spacecharge_min_V:Optional[float]=args.spacecharge_min_V, # V
-                  spacecharge_max_V:Optional[float]=args.spacecharge_max_V, # V
-                  trap_left_wall:Union[str,list[str]]=args.trap_left_wall,
-                  trap_floor:Union[str,list[str]]=args.trap_floor,
-                  trap_right_wall:Union[str,list[str]]=args.trap_right_wall,
-                  thermalised:bool=args.thermalised,
-                  N_particles:int=args.N_particles,
-                  iterations:int=args.iterations,
-                  tof_range:list[float]=args.tof_range, # s
-                  tof_dt:float=args.tof_dt, # s
-                  verbose_level:int=args.verbose_level,
-                  plot_mask:int=args.plot_mask,
-                  dpi:int=args.dpi,
-                  savedata_mask:int=args.savedata_mask,
-                  savefig:bool=args.savefig,
-                  showfig:bool=args.showfig,
-                  file_prefix:str=args.file_prefix,
-                  fig_format:str=args.fig_format)->tuple[pl.DataFrame,pl.DataFrame]:
+                  *,
+                  trap_floor_V:float, # V
+                  trap_wall_V:float, # V
+                  pulse_wall_to_V:float=0, # V
+                  distance_to_mcp_m:float=1.05, # m
+                  spacecharge_min_V:Optional[float]=None, # V
+                  spacecharge_max_V:Optional[float]=None, # V
+                  trap_left_wall:Union[str,list[str]]=['P7','P8','P9'],
+                  trap_floor:Union[str,list[str]]=['P10','P11','P12'],
+                  trap_right_wall:Union[str,list[str]]=['P13'],
+                  thermalised:bool=True,
+                  N_particles:int=10_000,
+                  iterations:int=10,
+                  tof_range:list[float]=[0,1e-4], # s
+                  tof_dt:float=1e-9, # s
+                  verbose_level:int=0,
+                  plot_mask:int=0,
+                  dpi:int=200,
+                  savedata_mask:int=0,
+                  savefig:bool=False,
+                  showfig:bool=True,
+                  file_prefix:str='',
+                  fig_format:str='eps')->tuple[pl.DataFrame,pl.DataFrame]:
+    '''
+    Simulate the time of flight signal of particles with m/q [u/e] released from the trap.
+    Keyword arguments are the same as the command line parameters (see calculate_tof.py -h).
+    '''
     # make parameters into proper format
     if isinstance(mq,(float,int)):
         mq = [mq]
@@ -977,7 +1058,7 @@ def calculate_tof(mq:Union[float,list[float]],
                                             file_prefix=file_prefix,
                                             file_suffix=f"mq={mqi}_"+file_suffix,
                                             fig_format=fig_format)
-            if not savefig:
+            if not showfig:
                 plt.close(fig3)
 
         # bin the times to create a signal
@@ -1043,58 +1124,95 @@ def calculate_tof(mq:Union[float,list[float]],
 
 
 #################################################################
-def tof()->None:
+def _common_kwargs(args:argparse.Namespace)->dict:
+    '''
+    Parameters of calculate_tof shared by all commands
+    '''
+    return dict(trap_floor_V=args.trap_floor_V,
+                trap_wall_V=args.trap_wall_V,
+                pulse_wall_to_V=args.pulse_wall_to_V,
+                distance_to_mcp_m=args.distance_to_mcp_m,
+                spacecharge_min_V=args.spacecharge_min_V,
+                spacecharge_max_V=args.spacecharge_max_V,
+                trap_left_wall=args.trap_left_wall,
+                trap_floor=args.trap_floor,
+                trap_right_wall=args.trap_right_wall,
+                thermalised=args.thermalised,
+                N_particles=args.N_particles,
+                iterations=args.iterations,
+                tof_range=args.tof_range,
+                tof_dt=args.tof_dt,
+                verbose_level=args.verbose_level,
+                plot_mask=args.plot_mask,
+                dpi=args.dpi,
+                savedata_mask=args.savedata_mask,
+                savefig=args.savefig,
+                showfig=args.showfig,
+                file_prefix=args.file_prefix,
+                fig_format=args.fig_format)
+
+
+def tof(args:argparse.Namespace)->None:
     calculate_tof(mq=args.mq,
                   labels=args.label,
-                  weights=args.weight)
+                  weights=args.weight,
+                  **_common_kwargs(args))
 
-def tof_pbar()->None:
+def tof_pbar(args:argparse.Namespace)->None:
+    kwargs = _common_kwargs(args)
+    kwargs.update(plot_mask=0x1f if args.plot_mask == 0 else args.plot_mask,
+                  file_prefix="pbar" if args.file_prefix=='' else args.file_prefix)
     calculate_tof(mq=1.007276,
                   labels=r"$\bar{p}$",
                   weights=args.weight,
-                  plot_mask=0x1f if args.plot_mask == 0 else args.plot_mask,
-                  file_prefix="pbar" if args.file_prefix=='' else args.file_prefix)
+                  **kwargs)
 
 
-def tof_fragments()->None:
+def tof_fragments(args:argparse.Namespace)->None:
     # df_simulated_data = pl.read_parquet(loader.build_data_path("trappable_Ar40_m-over-q.parquet"))
     df_simulated_data = pl.read_parquet(args.fragments_data_path)
     # df_simulated_data = df_simulated_data.with_columns(pl.col("tof_s").sub(pl.col("tof_exp_s")).alias("dt"))
     # print(df_simulated_data)
-
+    kwargs = _common_kwargs(args)
+    kwargs.update(plot_mask=0x11 if args.plot_mask == 0 else args.plot_mask,
+                  file_prefix="Ar40" if args.file_prefix=='' else args.file_prefix)
     calculate_tof(mq = df_simulated_data['m_over_q'],
                   labels=df_simulated_data['label'],
                   weights=df_simulated_data['trappable_count'],
-                  plot_mask=0x11 if args.plot_mask == 0 else args.plot_mask,
-                  file_prefix="Ar40" if args.file_prefix=='' else args.file_prefix)
+                  **kwargs)
 
-def tof_calibration()->None:
-    mq_pbar=1.007276 # a.u./e
+def tof_calibration(args:argparse.Namespace)->None:
+    mq_pbar=1.007276 # u/e
+    kwargs = _common_kwargs(args)
+    for key in ["trap_floor_V","trap_wall_V","verbose_level","plot_mask","showfig"]:
+        kwargs.pop(key)
 
     tof_pbar_150 = pl.concat([calculate_tof(mq=mq_pbar,
                                             labels=r'$\bar{p}$',
                                             trap_floor_V=floor,
                                             trap_wall_V=150,
                                             verbose_level=1,
-                                            plot_level=0x1b if floor in [30,50,80,110,130] else 0,
-                                            showfig=True if floor in [30,50,80,110,130] else 0)[1].with_columns(pl.lit(150).alias("wall_V"),
-                                                                                                                pl.lit(floor*1.0).alias("floor_V")) 
+                                            plot_mask=0x1b if floor in [30,50,80,110,130] else 0,
+                                            showfig=floor in [30,50,80,110,130],
+                                            **kwargs)[1].with_columns(pl.lit(150).alias("wall_V"),
+                                                                      pl.lit(floor*1.0).alias("floor_V"))
                               for floor in range(30,135,5)])
 
-    tof_pbar_190 = pl.concat([calculate_tof(mq_pbar,
+    tof_pbar_190 = pl.concat([calculate_tof(mq=mq_pbar,
                                             labels=r'$\bar{p}$',
                                             trap_floor_V=floor,
                                             trap_wall_V=190,
                                             verbose_level=1,
-                                            plot_level=0x1b if floor in [155,175] else 0,
-                                            showfig=True if floor in [155,175] else False)[1].with_columns(pl.lit(190).alias("wall_V"),
-                                                                                                           pl.lit(floor*1.0).alias("floor_V"))
+                                            plot_mask=0x1b if floor in [155,175] else 0,
+                                            showfig=floor in [155,175],
+                                            **kwargs)[1].with_columns(pl.lit(190).alias("wall_V"),
+                                                                      pl.lit(floor*1.0).alias("floor_V"))
                               for floor in range(155,180,5)]) # range(30,135,5)
-    
+
     tof_pbar = pl.concat([tof_pbar_150,tof_pbar_190])
 
     tof_pbar = (tof_pbar.with_columns((1/pl.col("tof_peak_s").pow(2.0)).alias("1/t^2"),
-                                      (mq_pbar*loader.PROTON_MASS_KEV * 1000 / loader.SPEED_OF_LIGHT**2 / 2/pl.col("tof_peak_s")**2.0).alias("m/2qt^2"))
+                                      (mq_pbar*loader.ATOMIC_UNIT_TO_KEV * 1000 / loader.SPEED_OF_LIGHT**2 / 2/pl.col("tof_peak_s")**2.0).alias("m/2qt^2"))
                     )
     print(tof_pbar)
 
@@ -1137,23 +1255,27 @@ def tof_calibration()->None:
     print(f"A(wall=190 V)={popt[1][0]}")
     print(f"L={np.sqrt(popt[1][0])}")
     fig_calib.tight_layout()
-    fig_calib.savefig(os.path.join(os.path.dirname(__file__),"plots","pbar_calibration.eps"),dpi=600)
-    plt.show()
+    _save_fig(fig_calib,"pbar_calibration",args.file_prefix,'',args.fig_format)
 
 
 #################################################################
 
 
-if __name__ == "__main__":
+def main(argv:Optional[list[str]] = None)->None:
+    args = parse_args(argv)
     for key in args.__dict__:
         print(f'{key}:({type(args.__dict__[key])}){args.__dict__[key]}')
     if args.command == 'tof':
-        tof()
+        tof(args)
     elif args.command == 'tof_pbar':
-        tof_pbar()
+        tof_pbar(args)
     elif args.command == 'tof_fragments':
-        tof_fragments()
+        tof_fragments(args)
     elif args.command == 'tof_calibration':
-        tof_calibration()
+        tof_calibration(args)
     if args.showfig:
         plt.show()
+
+
+if __name__ == "__main__":
+    main()

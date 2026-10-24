@@ -1,0 +1,11 @@
+# Python 3.12 environment for the TOF simulation.
+# Recreate with miniforge (conda-forge):
+#   conda create -n tof_simulation -c conda-forge python=3.12 --file requirements.txt
+# or with pip in any Python 3.12 environment:
+#   pip install -r requirements.txt
+numpy==2.5.4
+scipy==1.18.1
+polars==1.32.0
+matplotlib==3.11.2
+seaborn==0.13.2
+pytest==9.1.1
